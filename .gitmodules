@@ -1,0 +1,6 @@
+[submodule "embassy"]
+	path = embassy
+	url = git@github.com:embassy-rs/embassy.git
+[submodule "nrf-softdevice"]
+	path = nrf-softdevice
+	url = git@github.com:embassy-rs/nrf-softdevice.git

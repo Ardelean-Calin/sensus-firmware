@@ -5,4 +5,56 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+
+[features]
+default = ["ble-gatt-server", "ble-sec"]
+
+ble-l2cap = ["nrf-softdevice/ble-l2cap"]
+ble-gatt-server = ["nrf-softdevice/ble-gatt-server"]
+ble-gatt-client = ["nrf-softdevice/ble-gatt-client"]
+ble-sec = ["nrf-softdevice/ble-sec"]
+
 [dependencies]
+embassy-executor = { version = "0.1.0", features = ["nightly", "defmt"] }
+embassy-time = { version = "0.1.0", features = [
+    "nightly",
+    "defmt",
+    "defmt-timestamp-uptime",
+] }
+embassy-sync = { version = "0.1.0" }
+embassy-nrf = { version = "0.1.0", features = [
+    "nightly",
+    "defmt",
+    "nrf52832",
+    "gpiote",
+    "time-driver-rtc1",
+] }
+cortex-m = "0.7.2"
+cortex-m-rt = "0.7.0"
+defmt = "0.3"
+defmt-rtt = "0.3.2"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+nrf-softdevice = { version = "0.1.0", features = [
+    "defmt",
+    "nrf52832",
+    "s112",
+    "ble-peripheral",
+    "critical-section-impl",
+    "ble-gatt-server",
+] }
+nrf-softdevice-s112 = { version = "0.1.1" }
+embedded-storage = "0.3.0"
+embedded-storage-async = "0.3.0"
+futures = { version = "0.3.5", default-features = false }
+fixed = "1.2.0"
+heapless = "0.7.1"
+atomic-pool = "0.2.1"
+static_cell = "1.0.0"
+
+[patch.crates-io]
+nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }
+nrf-softdevice-s112 = { path = "nrf-softdevice/nrf-softdevice-s112" }
+embassy-time = { path = "embassy/embassy-time" }
+embassy-sync = { path = "embassy/embassy-sync" }
+embassy-executor = { path = "embassy/embassy-executor" }
+embassy-nrf = { path = "embassy/embassy-nrf" }
