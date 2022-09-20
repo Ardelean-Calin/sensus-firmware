@@ -1,0 +1,35 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "probe-rs-debug",
+            "request": "attach",
+            "name": "Debug Plantbuddy",
+            "cwd": "${workspaceFolder}",
+            "connectUnderReset": true,
+            "probe": "1366:0101",
+            "chip": "nRF52832_xxAA",
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "resetAfterFlashing": true,
+                "haltAfterReset": true
+            },
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "programBinary": "./target/thumbv7em-none-eabihf/debug/plantbuddy-fw",
+                    "rttEnabled": true,
+                    "rttChannelFormats": [
+                        {
+                            "channelNumber": 0,
+                            "dataFormat": "String", // Format RTT data as String data
+                            "showTimestamps": true // Include host-side timestamps for every line of data transferred from the target RTT output
+                        },
+                    }
+                ]
+            }
+        ]
+    }

@@ -21,7 +21,7 @@ embassy-time = { version = "0.1.0", features = [
     "defmt",
     "defmt-timestamp-uptime",
 ] }
-embassy-sync = { version = "0.1.0" }
+embassy-sync = { version = "0.1.0", features = ["defmt"] }
 embassy-nrf = { version = "0.1.0", features = [
     "nightly",
     "defmt",
