@@ -14,6 +14,7 @@ use embassy_nrf::{saadc, interrupt};
 use embassy_time::{Timer, Duration};
 use nrf_softdevice::ble::{gatt_server, peripheral};
 use nrf_softdevice::{raw, Softdevice};
+use static_cell::StaticCell;
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
@@ -22,17 +23,20 @@ async fn softdevice_task(sd: &'static Softdevice) -> ! {
 
 // TODO: Remove from the main.rs file and move to battery.rs
 #[embassy_executor::task]
-async fn read_battery_level() {
+async fn read_battery_level(server: &'static Server) {
     let mut p = embassy_nrf::init(Default::default());
     let mut config = saadc::Config::default();
     config.oversample = Oversample::OVER64X;
     let channel_cfg = saadc::ChannelConfig::single_ended(&mut p.P0_29);
     let mut saadc = saadc::Saadc::new(p.SAADC, interrupt::take!(SAADC), config, [channel_cfg]);
     saadc.calibrate().await;
+
     loop {
         let mut buf = [0i16; 1];
         saadc.sample(&mut buf).await;
         let voltage: u32 = u32::from(buf[0].unsigned_abs()) * 200000 / 113778;
+        // Send the voltage somehow to a task that can access the server struct
+        unwrap!(server.bas.battery_level_set(voltage));
         info!("Battery voltage: {=u32}mV", &voltage);
         Timer::after(Duration::from_secs(1)).await
     }
@@ -44,17 +48,12 @@ struct BatteryService {
     battery_level: u32,
 }
 
-#[nrf_softdevice::gatt_service(uuid = "9e7312e0-2354-11eb-9f10-fbc30a62cf38")]
-struct FooService {
-    #[characteristic(uuid = "9e7312e0-2354-11eb-9f10-fbc30a63cf38", read, write, notify, indicate)]
-    foo: u16,
-}
-
 #[nrf_softdevice::gatt_server]
 struct Server {
     bas: BatteryService,
-    foo: FooService,
 }
+
+static GATT_SERVER: StaticCell<Server> = StaticCell::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -90,9 +89,11 @@ async fn main(spawner: Spawner) {
     };
 
     let sd = Softdevice::enable(&config);
-    let server = unwrap!(Server::new(sd));
+    
+    let server = GATT_SERVER.init(unwrap!(Server::new(sd)));
+    
     unwrap!(spawner.spawn(softdevice_task(sd)));
-    unwrap!(spawner.spawn(read_battery_level()));
+    unwrap!(spawner.spawn(read_battery_level(server)));
 
     #[rustfmt::skip]
     let adv_data = &[
@@ -108,31 +109,18 @@ async fn main(spawner: Spawner) {
     loop {
         let mut config = peripheral::Config::default();
         config.interval = 1600; // equivalent to 1000ms
+        // config.tx_power = TxPower::Plus3dBm;
         let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
         let conn = unwrap!(peripheral::advertise_connectable(sd, adv, &config).await);
 
         info!("advertising done!");
 
         // Run the GATT server on the connection. This returns when the connection gets disconnected.
-        let res = gatt_server::run(&conn, &server, |e| match e {
+        let res = gatt_server::run(&conn, server, |e| match e {
             ServerEvent::Bas(e) => match e {
                 BatteryServiceEvent::BatteryLevelCccdWrite { notifications } => {
                     info!("battery notifications: {}", notifications)
-                }
-            },
-            ServerEvent::Foo(e) => match e {
-                FooServiceEvent::FooWrite(val) => {
-                    info!("wrote foo: {}", val);
-                    if let Err(e) = server.foo.foo_notify(&conn, val + 1) {
-                        info!("send notification error: {:?}", e);
-                    }
-                }
-                FooServiceEvent::FooCccdWrite {
-                    indications,
-                    notifications,
-                } => {
-                    info!("foo indications: {}, notifications: {}", indications, notifications)
-                }
+                },
             },
         })
         .await;
