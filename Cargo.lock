@@ -337,6 +337,7 @@ dependencies = [
  "critical-section 1.1.1",
  "defmt",
  "embassy-macros",
+ "embassy-time",
  "futures-util",
  "static_cell",
 ]

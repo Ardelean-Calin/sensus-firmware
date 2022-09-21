@@ -15,7 +15,11 @@ ble-gatt-client = ["nrf-softdevice/ble-gatt-client"]
 ble-sec = ["nrf-softdevice/ble-sec"]
 
 [dependencies]
-embassy-executor = { version = "0.1.0", features = ["nightly", "defmt"] }
+embassy-executor = { version = "0.1.0", features = [
+    "nightly",
+    "defmt",
+    "integrated-timers",
+] }
 embassy-time = { version = "0.1.0", features = [
     "nightly",
     "defmt",
@@ -76,5 +80,12 @@ debug = 1
 debug-assertions = false
 incremental = false
 lto = "fat"
-opt-level = 3
+opt-level = 's'
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
 overflow-checks = false

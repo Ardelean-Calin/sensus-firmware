@@ -9,6 +9,9 @@ use core::mem;
 
 use defmt::{info, *};
 use embassy_executor::Spawner;
+use embassy_nrf::saadc::Oversample;
+use embassy_nrf::{saadc, interrupt};
+use embassy_time::{Timer, Duration};
 use nrf_softdevice::ble::{gatt_server, peripheral};
 use nrf_softdevice::{raw, Softdevice};
 
@@ -17,10 +20,28 @@ async fn softdevice_task(sd: &'static Softdevice) -> ! {
     sd.run().await
 }
 
+// TODO: Remove from the main.rs file and move to battery.rs
+#[embassy_executor::task]
+async fn read_battery_level() {
+    let mut p = embassy_nrf::init(Default::default());
+    let mut config = saadc::Config::default();
+    config.oversample = Oversample::OVER64X;
+    let channel_cfg = saadc::ChannelConfig::single_ended(&mut p.P0_29);
+    let mut saadc = saadc::Saadc::new(p.SAADC, interrupt::take!(SAADC), config, [channel_cfg]);
+    saadc.calibrate().await;
+    loop {
+        let mut buf = [0i16; 1];
+        saadc.sample(&mut buf).await;
+        let voltage: u32 = u32::from(buf[0].unsigned_abs()) * 200000 / 113778;
+        info!("Battery voltage: {=u32}mV", &voltage);
+        Timer::after(Duration::from_secs(1)).await
+    }
+}
+
 #[nrf_softdevice::gatt_service(uuid = "180f")]
 struct BatteryService {
     #[characteristic(uuid = "2a19", read, notify)]
-    battery_level: u8,
+    battery_level: u32,
 }
 
 #[nrf_softdevice::gatt_service(uuid = "9e7312e0-2354-11eb-9f10-fbc30a62cf38")]
@@ -71,6 +92,7 @@ async fn main(spawner: Spawner) {
     let sd = Softdevice::enable(&config);
     let server = unwrap!(Server::new(sd));
     unwrap!(spawner.spawn(softdevice_task(sd)));
+    unwrap!(spawner.spawn(read_battery_level()));
 
     #[rustfmt::skip]
     let adv_data = &[
@@ -84,7 +106,8 @@ async fn main(spawner: Spawner) {
     ];
 
     loop {
-        let config = peripheral::Config::default();
+        let mut config = peripheral::Config::default();
+        config.interval = 1600; // equivalent to 1000ms
         let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
         let conn = unwrap!(peripheral::advertise_connectable(sd, adv, &config).await);
 
