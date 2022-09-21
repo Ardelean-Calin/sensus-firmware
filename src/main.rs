@@ -9,12 +9,13 @@ use core::mem;
 
 use defmt::{info, *};
 use embassy_executor::Spawner;
-use embassy_nrf::saadc::Oversample;
-use embassy_nrf::{saadc, interrupt};
-use embassy_time::{Timer, Duration};
-use nrf_softdevice::ble::{gatt_server, peripheral};
+use embassy_nrf::saadc::{Input, Oversample, Saadc};
+use embassy_nrf::{interrupt, saadc};
+use embassy_time::{Duration, Timer};
+use futures::future::{select, Either};
+use futures::pin_mut;
+use nrf_softdevice::ble::{gatt_server, peripheral, Connection};
 use nrf_softdevice::{raw, Softdevice};
-use static_cell::StaticCell;
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
@@ -22,22 +23,22 @@ async fn softdevice_task(sd: &'static Softdevice) -> ! {
 }
 
 // TODO: Remove from the main.rs file and move to battery.rs
-#[embassy_executor::task]
-async fn read_battery_level(server: &'static Server) {
-    let mut p = embassy_nrf::init(Default::default());
-    let mut config = saadc::Config::default();
-    config.oversample = Oversample::OVER64X;
-    let channel_cfg = saadc::ChannelConfig::single_ended(&mut p.P0_29);
-    let mut saadc = saadc::Saadc::new(p.SAADC, interrupt::take!(SAADC), config, [channel_cfg]);
-    saadc.calibrate().await;
-
+async fn read_battery_level<'a>(
+    saadc: &'a mut Saadc<'_, 1>,
+    server: &'a Server,
+    connection: &'a Connection,
+) {
     loop {
         let mut buf = [0i16; 1];
         saadc.sample(&mut buf).await;
         let voltage: u32 = u32::from(buf[0].unsigned_abs()) * 200000 / 113778;
+
         // Send the voltage somehow to a task that can access the server struct
-        unwrap!(server.bas.battery_level_set(voltage));
-        info!("Battery voltage: {=u32}mV", &voltage);
+        match server.bas.battery_level_notify(connection, voltage) {
+            Ok(_) => info!("Battery voltage: {=u32}mV", &voltage),
+            Err(_) => unwrap!(server.bas.battery_level_set(voltage)),
+        };
+
         Timer::after(Duration::from_secs(1)).await
     }
 }
@@ -52,8 +53,6 @@ struct BatteryService {
 struct Server {
     bas: BatteryService,
 }
-
-static GATT_SERVER: StaticCell<Server> = StaticCell::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -83,17 +82,17 @@ async fn main(spawner: Spawner) {
             current_len: 10,
             max_len: 10,
             write_perm: unsafe { mem::zeroed() },
-            _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(raw::BLE_GATTS_VLOC_STACK as u8),
+            _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(
+                raw::BLE_GATTS_VLOC_STACK as u8,
+            ),
         }),
         ..Default::default()
     };
 
     let sd = Softdevice::enable(&config);
-    
-    let server = GATT_SERVER.init(unwrap!(Server::new(sd)));
-    
+    let server = unwrap!(Server::new(sd));
+
     unwrap!(spawner.spawn(softdevice_task(sd)));
-    unwrap!(spawner.spawn(read_battery_level(server)));
 
     #[rustfmt::skip]
     let adv_data = &[
@@ -106,27 +105,54 @@ async fn main(spawner: Spawner) {
         0x03, 0x03, 0x09, 0x18,
     ];
 
+    let p = embassy_nrf::init(Default::default());
+    let adc_pin = p.P0_29.degrade_saadc();
+    // Initialize ADC once.
+    let mut config = saadc::Config::default();
+    config.oversample = Oversample::OVER64X;
+    let channel_cfg = saadc::ChannelConfig::single_ended(adc_pin);
+    let mut saadc = saadc::Saadc::new(p.SAADC, interrupt::take!(SAADC), config, [channel_cfg]);
+    saadc.calibrate().await;
+
     loop {
         let mut config = peripheral::Config::default();
-        config.interval = 1600; // equivalent to 1000ms
+        // equivalent to 1000ms
+        config.interval = 1600;
         // config.tx_power = TxPower::Plus3dBm;
-        let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
-        let conn = unwrap!(peripheral::advertise_connectable(sd, adv, &config).await);
 
-        info!("advertising done!");
+        let adv = peripheral::ConnectableAdvertisement::ScannableUndirected {
+            adv_data,
+            scan_data,
+        };
+        let conn = unwrap!(peripheral::advertise_connectable(sd, adv, &config).await);
+        info!("advertising done! I have a connection.");
+
+        // Now that we have a connection, we can initialize the sensors and start measuring.
+        let adc_fut = read_battery_level(&mut saadc, &server, &conn);
 
         // Run the GATT server on the connection. This returns when the connection gets disconnected.
-        let res = gatt_server::run(&conn, server, |e| match e {
+        let gatt_fut = gatt_server::run(&conn, &server, |e| match e {
             ServerEvent::Bas(e) => match e {
                 BatteryServiceEvent::BatteryLevelCccdWrite { notifications } => {
                     info!("battery notifications: {}", notifications)
-                },
+                }
             },
-        })
-        .await;
+        });
 
-        if let Err(e) = res {
-            info!("gatt_server run exited with error: {:?}", e);
-        }
+        // I basically use "select" to wait for either one of the futures to complete. This way I can borrow
+        // data in the futures.
+        pin_mut!(adc_fut);
+        pin_mut!(gatt_fut);
+
+        let _ = match select(adc_fut, gatt_fut).await {
+            Either::Left((_, _)) => {
+                info!("ADC encountered an error and stopped!")
+            }
+            Either::Right((res, _)) => {
+                if let Err(e) = res {
+                    info!("gatt_server run exited with error: {:?}", e);
+                }
+            }
+        };
     }
 }
