@@ -6,7 +6,7 @@
     "configurations": [
         {
             "type": "probe-rs-debug",
-            "request": "attach",
+            "request": "launch",
             "name": "Debug Plantbuddy",
             "cwd": "${workspaceFolder}",
             "connectUnderReset": true,
@@ -28,8 +28,34 @@
                             "dataFormat": "String", // Format RTT data as String data
                             "showTimestamps": true // Include host-side timestamps for every line of data transferred from the target RTT output
                         },
+                    ]
+                }
+            ]
+        },
+        {
+            "cwd": "${workspaceFolder}",
+            "executable": "./target/thumbv7em-none-eabihf/debug/plantbuddy-fw",
+            "name": "Debug with JLink",
+            "request": "launch",
+            "type": "cortex-debug",
+            "device": "nRF52832_xxAA",
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none",
+            "servertype": "jlink",
+            "interface": "swd",
+            "svdFile": "./nrf52.svd",
+            "armToolchainPath": "/opt/gcc-arm-none-eabi-10.3-2021.10/bin",
+            "rttConfig": {
+                "enabled": true,
+                "address": "auto",
+                "decoders": [
+                    {
+                        "label": "",
+                        "port": 0,
+                        "type": "console"
                     }
                 ]
-            }
-        ]
-    }
+            },
+        },
+    ]
+}
