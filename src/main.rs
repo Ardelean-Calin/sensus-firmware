@@ -182,7 +182,16 @@ async fn main(spawner: Spawner) {
             scan_data,
         };
         let conn = unwrap!(peripheral::advertise_connectable(sd, adv, &config).await);
-        info!("advertising done! I have a connection.");
+        info!(
+            "Advertising done! Got a connection, trying to negociate higher connection intervals."
+        );
+        let conn_params = raw::ble_gap_conn_params_t {
+            min_conn_interval: 100,
+            max_conn_interval: 400,
+            slave_latency: 0,
+            conn_sup_timeout: 400, // 4s
+        };
+        conn.set_conn_params(conn_params);
 
         // Now that we have a connection, we can initialize the sensors and start measuring.
         let adc_fut = read_battery_level(&mut saadc, &server, &conn);
