@@ -9,13 +9,37 @@ use core::mem;
 
 use defmt::{info, *};
 use embassy_executor::Spawner;
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::saadc::{Input, Oversample, Saadc};
+use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{interrupt, saadc};
 use embassy_time::{Duration, Timer};
 use futures::future::{select, Either};
 use futures::pin_mut;
+use nrf52832_pac as pac;
 use nrf_softdevice::ble::{gatt_server, peripheral, Connection};
 use nrf_softdevice::{raw, Softdevice};
+
+/// Reconfigure NFC pins to be regular GPIO pins (resets if changed).
+/// It's a simple bit flag on LSb of the UICR register.
+pub fn configure_nfc_pins_as_gpio() {
+    let uicr = unsafe { &*pac::UICR::ptr() };
+    let nvmc = unsafe { &*pac::NVMC::ptr() };
+
+    // Sequence copied from Nordic SDK components/toolchain/system_nrf52.c line 173
+    if uicr.nfcpins.read().protect().is_nfc() {
+        nvmc.config.write(|w| w.wen().wen());
+        while nvmc.ready.read().ready().is_busy() {}
+
+        uicr.nfcpins.write(|w| w.protect().disabled());
+        while nvmc.ready.read().ready().is_busy() {}
+
+        nvmc.config.write(|w| w.wen().ren());
+        while nvmc.ready.read().ready().is_busy() {}
+
+        cortex_m::peripheral::SCB::sys_reset();
+    }
+}
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
@@ -57,6 +81,9 @@ struct Server {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Hello World!");
+
+    // Configure NFC pins as gpio.
+    configure_nfc_pins_as_gpio();
 
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
@@ -105,14 +132,44 @@ async fn main(spawner: Spawner) {
         0x03, 0x03, 0x09, 0x18,
     ];
 
-    let p = embassy_nrf::init(Default::default());
+    let mut p = embassy_nrf::init(Default::default());
+    let mut sen = Output::new(p.P0_06, Level::Low, OutputDrive::Standard);
+
+    // ADC initialization
     let adc_pin = p.P0_29.degrade_saadc();
-    // Initialize ADC once.
     let mut config = saadc::Config::default();
     config.oversample = Oversample::OVER64X;
     let channel_cfg = saadc::ChannelConfig::single_ended(adc_pin);
     let mut saadc = saadc::Saadc::new(p.SAADC, interrupt::take!(SAADC), config, [channel_cfg]);
     saadc.calibrate().await;
+
+    // Enable power to the sensors
+    sen.set_high();
+    // 0 -> 3.3V in less than 500us. Measured on oscilloscope. So I will set 2 ms just to be sure.
+    Timer::after(Duration::from_millis(2)).await;
+
+    let mut irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+    let mut i2c_config = twim::Config::default();
+    i2c_config.frequency = twim::Frequency::K250; // Middle ground between speed and power consumption.
+    i2c_config.scl_pullup = true;
+    i2c_config.sda_pullup = true;
+
+    let mut twi = Twim::new(
+        &mut p.TWISPI0,
+        &mut irq,
+        &mut p.P0_08,
+        &mut p.P0_09,
+        i2c_config,
+    );
+
+    let delay = embassy_time::Delay;
+    let mut shtc3 = shtcx::shtc3(twi);
+    let dev_id = shtc3.device_identifier().unwrap();
+    info!("Read dev_id: {}", dev_id);
+
+    // Reading the device identifier is complete in about 4ms
+    // Disable power to the sensors.
+    sen.set_low();
 
     loop {
         let mut config = peripheral::Config::default();
