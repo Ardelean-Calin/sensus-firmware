@@ -20,6 +20,45 @@ use nrf52832_pac as pac;
 use nrf_softdevice::ble::{gatt_server, peripheral, Connection};
 use nrf_softdevice::{raw, Softdevice};
 
+// Reconfigure UICR to enable reset pin if required (resets if changed).
+pub fn configure_reset_pin() {
+    let uicr = unsafe { &*pac::UICR::ptr() };
+    let nvmc = unsafe { &*pac::NVMC::ptr() };
+
+    #[cfg(feature = "nrf52840")]
+    const RESET_PIN: u8 = 18;
+    #[cfg(feature = "nrf52832")]
+    const RESET_PIN: u8 = 21;
+
+    // Sequence copied from Nordic SDK components/toolchain/system_nrf52.c
+    if uicr.pselreset[0].read().connect().is_disconnected()
+        || uicr.pselreset[1].read().connect().is_disconnected()
+    {
+        nvmc.config.write(|w| w.wen().wen());
+        while nvmc.ready.read().ready().is_busy() {}
+
+        for i in 0..=1 {
+            uicr.pselreset[i].write(|w| {
+                unsafe {
+                    w.pin().bits(RESET_PIN);
+                } // should be 21 for 52832
+
+                #[cfg(feature = "nrf52840")]
+                w.port().clear_bit(); // not present on 52832
+
+                w.connect().connected();
+                w
+            });
+            while nvmc.ready.read().ready().is_busy() {}
+        }
+
+        nvmc.config.write(|w| w.wen().ren());
+        while nvmc.ready.read().ready().is_busy() {}
+
+        cortex_m::peripheral::SCB::sys_reset();
+    }
+}
+
 /// Reconfigure NFC pins to be regular GPIO pins (resets if changed).
 /// It's a simple bit flag on LSb of the UICR register.
 pub fn configure_nfc_pins_as_gpio() {
@@ -84,6 +123,8 @@ async fn main(spawner: Spawner) {
 
     // Configure NFC pins as gpio.
     configure_nfc_pins_as_gpio();
+    // Configure Pin 21 as reset pin (for now)
+    configure_reset_pin();
 
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
