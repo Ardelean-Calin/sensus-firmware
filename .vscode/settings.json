@@ -12,7 +12,7 @@
     },
     "rust-analyzer.imports.granularity.group": "module",
     "rust-analyzer.cargo.buildScripts.enable": true,
-    "rust-analyzer.procMacro.attributes.enable": false,
+    "rust-analyzer.procMacro.attributes.enable": true,
     "rust-analyzer.cargo.features": [
         // These are needed to prevent embassy-net from failing to build
         //"embassy-net/medium-ethernet",
@@ -28,6 +28,7 @@
         //"embassy-executor/Cargo.toml",
         //"embassy-sync/Cargo.toml",
         // "embassy/examples/nrf/Cargo.toml",
+        // "nrf-softdevice/nrf-softdevice-macro/Cargo.toml"
         // "examples/rp/Cargo.toml",
         // "examples/std/Cargo.toml",
         // "examples/stm32f0/Cargo.toml",
