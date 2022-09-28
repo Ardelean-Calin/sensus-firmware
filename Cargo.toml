@@ -33,7 +33,9 @@ embassy-nrf = { version = "0.1.0", features = [
     "nrf52832",
     "gpiote",
     "time-driver-rtc1",
+    "unstable-traits",
 ] }
+embassy-embedded-hal = { version = "0.1.0" }
 cortex-m = "0.7.2"
 cortex-m-rt = "0.7.0"
 defmt = "0.3"
@@ -55,8 +57,8 @@ fixed = "1.2.0"
 heapless = "0.7.1"
 atomic-pool = "0.2.1"
 static_cell = "1.0.0"
-shtcx = "0.10.0"
 nrf52832-pac = "0.11.0"
+embedded-hal-async = { version = "0.1.0-alpha.1" }
 
 [patch.crates-io]
 nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }
@@ -65,6 +67,7 @@ embassy-time = { path = "embassy/embassy-time" }
 embassy-sync = { path = "embassy/embassy-sync" }
 embassy-executor = { path = "embassy/embassy-executor" }
 embassy-nrf = { path = "embassy/embassy-nrf" }
+embassy-embedded-hal = { path = "embassy/embassy-embedded-hal" }
 
 
 # optimize code in both profiles

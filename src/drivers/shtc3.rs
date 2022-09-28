@@ -1,22 +1,33 @@
-// TODO: I could have the i2c sensors in the same function/task. This way they could share the i2c bus easier
+use embassy_nrf::twim::Error;
+use embedded_hal_async::i2c::{self};
 
-// let mut irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-// let mut i2c_config = twim::Config::default();
-// i2c_config.frequency = twim::Frequency::K250; // Middle ground between speed and power consumption.
-// i2c_config.scl_pullup = true;
-// i2c_config.sda_pullup = true;
+const ADDRESS: u8 = 0x70;
+pub struct Shtc3<I2C: i2c::I2c> {
+    i2c: I2C,
+}
 
-// let mut twi = Twim::new(
-//     &mut p.TWISPI0,
-//     &mut irq,
-//     &mut p.P0_08,
-//     &mut p.P0_09,
-//     i2c_config,
-// );
+impl<I2C> Shtc3<I2C>
+where
+    I2C: i2c::I2c + 'static,
+{
+    pub fn new(i2c: I2C) -> Self {
+        Self { i2c }
+    }
 
-// let delay = embassy_time::Delay;
-// let mut shtc3 = shtcx::shtc3(twi);
-// let dev_id = shtc3.device_identifier().unwrap();
-// info!("Read dev_id: {}", dev_id);
+    /// Get the device ID of your SHTC3.
+    pub async fn get_device_id(&mut self) -> Result<u8, Error> {
+        let mut buf = [0u8; 3];
+        let tx_buf = [0xEF, 0xC8];
 
-// Reading the device identifier is complete in about 4ms
+        self.i2c
+            .write_read(ADDRESS, &tx_buf, &mut buf)
+            .await
+            .unwrap();
+
+        let ident = u16::from_be_bytes([buf[0], buf[1]]);
+
+        let lsb = (ident & 0b0011_1111) as u8;
+        let msb = ((ident & 0b00001000_00000000) >> 5) as u8;
+        Ok(lsb | msb)
+    }
+}
