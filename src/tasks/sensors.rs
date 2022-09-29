@@ -8,7 +8,7 @@ mod ltr303_sensor;
 use embassy_nrf::interrupt::SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0;
 use embedded_hal_async::i2c::I2c;
 use futures::future::join;
-use shtc3_async::{Measurement, Shtc3};
+use shtc3_async::{Measurement, PowerMode, Shtc3};
 
 use defmt::{info, *};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pin, Pull};
@@ -27,7 +27,7 @@ async fn shtc3_sample<'a, M: RawMutex, BUS: I2c>(dev: I2cDevice<'a, M, BUS>) -> 
     let mut delay = Delay;
 
     unwrap!(sht.wakeup(&mut delay).await);
-    let result = unwrap!(sht.measure(&mut delay).await);
+    let result = unwrap!(sht.measure(PowerMode::LowPower, &mut delay).await);
     info!(
         "Got the following measurement: RH: {}%\tT: {}C",
         result.humidity.as_percent(),
