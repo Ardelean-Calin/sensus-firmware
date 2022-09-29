@@ -4,3 +4,6 @@
 [submodule "nrf-softdevice"]
 	path = nrf-softdevice
 	url = git@github.com:embassy-rs/nrf-softdevice.git
+[submodule "shtc3-async"]
+	path = shtc3-async
+	url = git@github.com:Ardelean-Calin/shtc3-async.git

@@ -25,6 +25,7 @@ embassy-time = { version = "0.1.0", features = [
     "nightly",
     "defmt",
     "defmt-timestamp-uptime",
+    "unstable-traits",
 ] }
 embassy-sync = { version = "0.1.0", features = ["defmt"] }
 embassy-nrf = { version = "0.1.0", features = [
@@ -59,6 +60,7 @@ atomic-pool = "0.2.1"
 static_cell = "1.0.0"
 nrf52832-pac = "0.11.0"
 embedded-hal-async = { version = "0.1.0-alpha.1" }
+shtc3-async = { path = "shtc3-async", features = ["defmt"], version = "0.1.0" }
 
 [patch.crates-io]
 nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }
