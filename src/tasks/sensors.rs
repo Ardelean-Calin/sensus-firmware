@@ -3,12 +3,14 @@ mod common;
 
 #[path = "../drivers/battery_sensor.rs"]
 mod battery_sensor;
-#[path = "../drivers/ltr303_sensor.rs"]
-mod ltr303_sensor;
+
+// My own drivers.
+use ltr303_async;
+use shtc3_async::{Measurement, PowerMode, Shtc3};
+
 use embassy_nrf::interrupt::SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0;
 use embedded_hal_async::i2c::I2c;
 use futures::future::join;
-use shtc3_async::{Measurement, PowerMode, Shtc3};
 
 use defmt::{info, *};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pin, Pull};

@@ -7,3 +7,6 @@
 [submodule "shtc3-async"]
 	path = shtc3-async
 	url = git@github.com:Ardelean-Calin/shtc3-async.git
+[submodule "ltr303-async"]
+	path = ltr303-async
+	url = git@github.com:Ardelean-Calin/ltr303-rs-async.git

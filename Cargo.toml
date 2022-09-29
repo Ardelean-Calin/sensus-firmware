@@ -61,6 +61,9 @@ static_cell = "1.0.0"
 nrf52832-pac = "0.11.0"
 embedded-hal-async = { version = "0.1.0-alpha.1" }
 shtc3-async = { path = "shtc3-async", features = ["defmt"], version = "0.1.0" }
+ltr303-async = { path = "ltr303-async", features = [
+    "defmt",
+], version = "0.1.0" }
 
 [patch.crates-io]
 nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }
