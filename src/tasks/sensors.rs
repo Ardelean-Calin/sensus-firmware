@@ -4,10 +4,12 @@ mod common;
 #[path = "../drivers/battery_sensor.rs"]
 mod battery_sensor;
 
+use embassy_nrf::gpiote::InputChannel;
 use embassy_nrf::interrupt::{
     SAADC, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1,
 };
 use embassy_nrf::peripherals::{P0_06, TWISPI0, TWISPI1};
+use embassy_nrf::ppi::Ppi;
 // My own drivers.
 use ltr303_async::Ltr303;
 use shtc3_async::Shtc3;
@@ -15,7 +17,7 @@ use shtc3_async::Shtc3;
 use futures::future::join;
 
 use defmt::{info, *};
-use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_nrf::gpio::{Input, Level, Output, OutputDrive};
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{interrupt, Peripherals};
 use embassy_time::{Delay, Duration, Timer};
@@ -126,6 +128,7 @@ impl<'a> Sensors<'a> {
         )
         .await;
 
+        // TODO: This will only be necessary for the external sensors.
         sen.set_low();
 
         let data = SensorData {
@@ -174,18 +177,45 @@ pub async fn sensors_task() {
     // Peripherals config
     let mut p = embassy_nrf::init(config);
 
-    let mut sensors = Sensors::new(&mut p);
+    // Hardware timer(s) used by the probe
+    // Let's bind the GPIO19 falling edge event to the counter's count up event.
+    // In parallel, we start a normal 1MHz timer.
+    // Then, after 100ms we get the value of CC in the counter, therefore giving us the number of events per 100ms
+    let freq_in = InputChannel::new(
+        p.GPIOTE_CH0,
+        Input::new(p.P0_19, embassy_nrf::gpio::Pull::Up),
+        embassy_nrf::gpiote::InputChannelPolarity::HiToLo,
+    );
+    let mut counter = embassy_nrf::timer::Timer::new(p.TIMER0);
+    let mut ppi = Ppi::new_one_to_one(p.PPI_CH0, freq_in.event_in(), counter.task_count());
+    ppi.enable();
+    counter.start();
 
+    let mut sen = Output::new(p.P0_06, Level::Low, OutputDrive::Standard);
+    sen.set_high();
+    Timer::after(Duration::from_millis(2)).await;
+
+    let mut prev = 0u32;
     loop {
-        let data = sensors.sample().await;
-
-        info!("Battery voltage: {}mV", data.battery_voltage);
-        info!("LTR measurement result: {}", data.ltr_data);
-        info!("SHT measurement result: {}", data.sht_data);
-        info!("Soil temperature: {}C", data.soil_temperature);
-        info!("Soil water content: {}%", data.soil_humidity);
-
-        // I know I don't include the measurement time here, but I don't really need to be super precise...
-        Timer::after(Duration::from_millis(SENSOR_PERIOD_MS as u64)).await;
+        let cc = counter.cc(0).capture();
+        info!("Freq: {}Hz\tCC: {}", cc - prev, cc);
+        prev = cc;
+        Timer::after(Duration::from_millis(1000)).await;
     }
+    // timer.cc(0).write(value).
+
+    // let mut sensors = Sensors::new(&mut p);
+
+    // loop {
+    //     let data = sensors.sample().await;
+
+    //     info!("Battery voltage: {}mV", data.battery_voltage);
+    //     info!("LTR measurement result: {}", data.ltr_data);
+    //     info!("SHT measurement result: {}", data.sht_data);
+    //     info!("Soil temperature: {}C", data.soil_temperature);
+    //     info!("Soil water content: {}%", data.soil_humidity);
+
+    //     // I know I don't include the measurement time here, but I don't really need to be super precise...
+    //     Timer::after(Duration::from_millis(SENSOR_PERIOD_MS as u64)).await;
+    // }
 }
