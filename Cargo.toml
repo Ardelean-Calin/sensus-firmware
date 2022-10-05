@@ -65,6 +65,7 @@ ltr303-async = { path = "ltr303-async", features = [
     "defmt",
 ], version = "0.1.0" }
 shared-bus = { version = "0.2.4", features = ["cortex-m"] }
+tmp1x2 = "0.2.1"
 
 [patch.crates-io]
 nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }

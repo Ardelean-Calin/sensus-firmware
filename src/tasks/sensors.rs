@@ -4,7 +4,10 @@ mod common;
 #[path = "../drivers/battery_sensor.rs"]
 mod battery_sensor;
 
-use embassy_nrf::peripherals::TWISPI0;
+use embassy_nrf::interrupt::{
+    SAADC, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1,
+};
+use embassy_nrf::peripherals::{P0_06, TWISPI0, TWISPI1};
 // My own drivers.
 use ltr303_async::Ltr303;
 use shtc3_async::Shtc3;
@@ -13,9 +16,10 @@ use futures::future::join;
 
 use defmt::{info, *};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
-use embassy_nrf::interrupt;
 use embassy_nrf::twim::{self, Twim};
+use embassy_nrf::{interrupt, Peripherals};
 use embassy_time::{Delay, Duration, Timer};
+use tmp1x2::{self, Tmp1x2};
 
 use battery_sensor::BatterySensor;
 use shared_bus;
@@ -55,6 +59,113 @@ async fn battery_sensor_sample<'a>(mut sensor: BatterySensor<'a>) -> u32 {
     battery_voltage
 }
 
+struct SensorData {
+    battery_voltage: u32,
+    sht_data: shtc3_async::Measurement,
+    ltr_data: ltr303_async::Measurement,
+    soil_temperature: f32,
+    soil_humidity: f32,
+}
+
+struct Sensors<'a> {
+    p: &'a mut Peripherals,
+    onb_i2c_irq: SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0,
+    ext_i2c_irq: SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1,
+    adc_irq: SAADC,
+}
+
+impl<'a> Sensors<'a> {
+    fn new(p: &'a mut Peripherals) -> Self {
+        let onb_i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+        let ext_i2c_irq = interrupt::take!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+        let adc_irq = interrupt::take!(SAADC);
+
+        Self {
+            p,
+            onb_i2c_irq,
+            ext_i2c_irq,
+            adc_irq,
+        }
+    }
+
+    async fn sample(&mut self) -> SensorData {
+        // TODO: This will only be necessary for the external sensors.
+        let mut sen = Output::new(&mut self.p.P0_06, Level::Low, OutputDrive::Standard);
+        sen.set_high();
+        Timer::after(Duration::from_millis(2)).await;
+
+        let battery_sensor =
+            BatterySensor::new(&mut self.p.P0_29, &mut self.p.SAADC, &mut self.adc_irq);
+
+        // i2c bus used by onboard sensors
+        let mut config = twim::Config::default();
+        config.frequency = twim::Frequency::K400; // 400k seems to be best for low power consumption.
+        let onboard_i2c_bus = Twim::new(
+            &mut self.p.TWISPI0,
+            &mut self.onb_i2c_irq,
+            &mut self.p.P0_08,
+            &mut self.p.P0_09,
+            config,
+        );
+
+        // i2c bus used by external probe sensors
+        let mut config2 = twim::Config::default();
+        config2.frequency = twim::Frequency::K400; // 400k seems to be best for low power consumption.
+        let external_i2c_bus = Twim::new(
+            &mut self.p.TWISPI1,
+            &mut self.ext_i2c_irq,
+            &mut self.p.P0_14,
+            &mut self.p.P0_15,
+            config2,
+        );
+
+        // NOTE: join3 doesn't seem to work!
+        let ((bat_voltage, sht_data, ltr_data), (soil_temp, soil_water)) = join(
+            Sensors::_onboard_sensors_sample(onboard_i2c_bus, battery_sensor),
+            Sensors::_external_sensors_sample(external_i2c_bus),
+        )
+        .await;
+
+        sen.set_low();
+
+        let data = SensorData {
+            sht_data,
+            ltr_data,
+            battery_voltage: bat_voltage,
+            soil_temperature: soil_temp,
+            soil_humidity: soil_water,
+        };
+
+        data
+    }
+
+    async fn _onboard_sensors_sample(
+        i2c_bus: Twim<'_, TWISPI0>,
+        battery_sensor: BatterySensor<'_>,
+    ) -> (u32, shtc3_async::Measurement, ltr303_async::Measurement) {
+        let (batt_voltage, (sht_data, ltr_data)) = join(
+            battery_sensor_sample(battery_sensor),
+            i2c_sensors_sample(i2c_bus),
+        )
+        .await;
+
+        (batt_voltage, sht_data, ltr_data)
+    }
+
+    async fn _external_sensors_sample(i2c_bus: Twim<'_, TWISPI1>) -> (f32, f32) {
+        // Sensor 1: Temperature
+        let mut tmp_sensor = Tmp1x2::new(i2c_bus, tmp1x2::SlaveAddr::Default);
+        // 35ms is the maximum conversion time as specified in the datasheet.
+        Timer::after(Duration::from_millis(35)).await;
+        let ext_tmp = tmp_sensor.read_temperature().unwrap();
+
+        info!("Soil temperature: {}", ext_tmp);
+
+        // Sensor 2: Soil humidity
+        (ext_tmp, 69f32)
+    }
+}
+
 #[embassy_executor::task]
 pub async fn sensors_task() {
     let mut config = embassy_nrf::config::Config::default();
@@ -62,45 +173,17 @@ pub async fn sensors_task() {
 
     // Peripherals config
     let mut p = embassy_nrf::init(config);
-    let mut i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-    let mut adc_irq = interrupt::take!(SAADC);
-    // TODO: Final revision will not need this.
-    let mut sen = Output::new(p.P0_06, Level::Low, OutputDrive::Standard);
-    // end TODO
+
+    let mut sensors = Sensors::new(&mut p);
 
     loop {
-        // TODO: Final revision will not need this.
-        sen.set_high();
-        Timer::after(Duration::from_millis(2)).await;
-        // end TODO
-        let battery_sensor = BatterySensor::new(&mut p.P0_29, &mut p.SAADC, &mut adc_irq);
-        let mut config = twim::Config::default();
-        config.frequency = twim::Frequency::K400; // 400k seems to be best for low power consumption.
+        let data = sensors.sample().await;
 
-        let i2c_bus = Twim::new(
-            &mut p.TWISPI0,
-            &mut i2c_irq,
-            &mut p.P0_08,
-            &mut p.P0_09,
-            config,
-        );
-
-        // i2c_bus gets owned by i2c_sensors_sample, which drops its value at the end of the function call!
-        // The power consumption is therefore minimal, and the peripheral is recreated each loop iteration.
-        // We can specify a timeout using the timer below.
-        // NOTE: join3 doesn't seem to work!
-        let (voltage, (sht_data, ltr_data)) = join(
-            battery_sensor_sample(battery_sensor),
-            i2c_sensors_sample(i2c_bus),
-        )
-        .await;
-        // TODO: Final revision will not need this.
-        sen.set_low();
-        // end TODO
-
-        info!("Battery voltage: {}mV", voltage);
-        info!("SHT measurement result: {}", sht_data);
-        info!("LTR measurement result: {}", ltr_data);
+        info!("Battery voltage: {}mV", data.battery_voltage);
+        info!("LTR measurement result: {}", data.ltr_data);
+        info!("SHT measurement result: {}", data.sht_data);
+        info!("Soil temperature: {}C", data.soil_temperature);
+        info!("Soil water content: {}%", data.soil_humidity);
 
         // I know I don't include the measurement time here, but I don't really need to be super precise...
         Timer::after(Duration::from_millis(SENSOR_PERIOD_MS as u64)).await;
