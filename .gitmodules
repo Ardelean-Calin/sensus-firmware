@@ -7,3 +7,6 @@
 [submodule "embassy"]
 	path = embassy
 	url = git@github.com:Ardelean-Calin/embassy.git
+[submodule "nrf-softdevice"]
+	path = nrf-softdevice
+	url = git@github.com:Ardelean-Calin/nrf-softdevice.git
