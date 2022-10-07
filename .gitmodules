@@ -7,3 +7,6 @@
 [submodule "ltr303-async"]
 	path = ltr303-async
 	url = git@github.com:Ardelean-Calin/ltr303-rs-async.git
+[submodule "embassy"]
+	path = embassy
+	url = git@github.com:Ardelean-Calin/embassy.git
