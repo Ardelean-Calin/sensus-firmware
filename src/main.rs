@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
-#![feature(async_fn_in_trait)]
+#![feature(future_join)]
 
 #[path = "tasks/ble.rs"]
 mod ble;
@@ -88,6 +88,6 @@ async fn main(spawner: Spawner) {
     // // 0 -> 3.3V in less than 500us. Measured on oscilloscope. So I will set 2 ms just to be sure.
     // Timer::after(Duration::from_millis(2)).await;
 
-    unwrap!(spawner.spawn(sensors::sensors_task()));
+    // unwrap!(spawner.spawn(sensors::sensors_task()));
     unwrap!(spawner.spawn(ble::ble_task(spawner)));
 }

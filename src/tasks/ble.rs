@@ -3,10 +3,12 @@ mod common;
 
 use core::mem;
 
-use defmt::{info, *};
+use defmt::{assert_eq, info, *};
+
 use embassy_executor::Spawner;
-use nrf_softdevice::ble::{gatt_server, peripheral, Connection};
+use nrf_softdevice::ble::{gatt_server, peripheral, Connection, TxPower};
 use nrf_softdevice::{raw, Softdevice};
+use raw::{sd_power_dcdc_mode_set, NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE};
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
@@ -58,6 +60,11 @@ pub async fn ble_task(spawner: Spawner) {
     };
 
     let sd = Softdevice::enable(&config);
+    // Enable DC/DC converter for the Softdevice.
+    unsafe {
+        let ret = sd_power_dcdc_mode_set(NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE as u8);
+        assert_eq!(ret, 0, "Error when enabling DC/DC converter: {}", ret);
+    }
     let server = unwrap!(Server::new(sd));
 
     unwrap!(spawner.spawn(softdevice_task(sd)));
@@ -66,7 +73,8 @@ pub async fn ble_task(spawner: Spawner) {
     let adv_data = &[
         0x02, 0x01, raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8,
         0x03, 0x03, 0x09, 0x18,
-        0x0a, 0x09, b'H', b'e', b'l', b'l', b'o', b'R', b'u', b's', b't',
+        0x0a, 0x09, b'R', b'u', b's', b't', b'y', b'B', b'u', b't', b't',
+        // 0x0a, 0x09, b'H', b'e', b'l', b'l', b'o', b'R', b'u', b's', b't',
     ];
     #[rustfmt::skip]
     let scan_data = &[
@@ -78,7 +86,7 @@ pub async fn ble_task(spawner: Spawner) {
         let mut config = peripheral::Config::default();
         // equivalent to 1000ms
         config.interval = 1600;
-        // config.tx_power = TxPower::Plus3dBm;
+        config.tx_power = TxPower::Plus4dBm;
 
         let adv = peripheral::ConnectableAdvertisement::ScannableUndirected {
             adv_data,
