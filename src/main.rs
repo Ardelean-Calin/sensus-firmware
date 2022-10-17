@@ -83,11 +83,14 @@ async fn main(spawner: Spawner) {
     // Configure Pin 21 as reset pin (for now)
     configure_reset_pin();
 
-    // // Enable power to the sensors
-    // sen.set_high();
-    // // 0 -> 3.3V in less than 500us. Measured on oscilloscope. So I will set 2 ms just to be sure.
-    // Timer::after(Duration::from_millis(2)).await;
+    let mut config = embassy_nrf::config::Config::default();
+    config.hfclk_source = embassy_nrf::config::HfclkSource::ExternalXtal;
+    config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
+    config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
 
-    // unwrap!(spawner.spawn(sensors::sensors_task()));
+    // Peripherals config
+    let p = embassy_nrf::init(config);
+
     unwrap!(spawner.spawn(ble::ble_task(spawner)));
+    unwrap!(spawner.spawn(sensors::sensors_task(p)));
 }

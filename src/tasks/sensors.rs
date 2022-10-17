@@ -236,12 +236,7 @@ struct SensorData {
 // }
 
 #[embassy_executor::task]
-pub async fn sensors_task() {
-    let mut config = embassy_nrf::config::Config::default();
-    config.hfclk_source = embassy_nrf::config::HfclkSource::ExternalXtal;
-
-    // Peripherals config
-    let mut p = embassy_nrf::init(config);
+pub async fn sensors_task(mut p: Peripherals) {
     let mut sen = Output::new(&mut p.P0_06, Level::Low, OutputDrive::Standard);
     sen.set_high();
     Timer::after(Duration::from_millis(2)).await;
@@ -254,24 +249,29 @@ pub async fn sensors_task() {
         Input::new(&mut p.P0_19, embassy_nrf::gpio::Pull::Up),
         embassy_nrf::gpiote::InputChannelPolarity::HiToLo,
     );
-    let mut counter = timerv2::get_timer()
+    let counter = timerv2::Timer::new(timerv2::TimerInstance::TIMER0)
         .into_counter()
+        .with_bitmode(timerv2::Bitmode::B32);
+
+    let timer = timerv2::Timer::new(timerv2::TimerInstance::TIMER1)
+        .into_timer()
         .with_bitmode(timerv2::Bitmode::B32);
 
     // let counter = embassy_nrf::timer::Timer::new(&mut p.TIMER0).into_counter();
     // let timer = embassy_nrf::timer::Timer::new_awaitable(&mut p.TIMER1, interrupt::take!(TIMER1));
     let mut ppi = Ppi::new_one_to_one(&mut p.PPI_CH0, freq_in.event_in(), counter.task_count());
     ppi.enable();
-    counter.start();
 
-    // timer.set_frequency(embassy_nrf::timer::Frequency::F1MHz);
-    // timer.start();
+    // Start both timers.
+    counter.start();
+    timer.start();
 
     loop {
         let cc = counter.cc(0).capture();
-        //     let timer_val = timer.cc(0).capture();
-        info!("Freq: {}Hz", cc * 10);
-        counter.clear();
+        let timer_val = timer.cc(0).capture();
+        info!("Freq: {}Hz at time: {}", cc, timer_val);
+        // TODO: Clear pare sa faca ceva gresit... incurca intreruperile softdevice-ului
+        // counter.clear();
         Timer::after(Duration::from_millis(1000)).await;
     }
 
