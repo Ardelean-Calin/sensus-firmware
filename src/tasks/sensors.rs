@@ -249,11 +249,12 @@ pub async fn sensors_task(mut p: Peripherals) {
         Input::new(&mut p.P0_19, embassy_nrf::gpio::Pull::Up),
         embassy_nrf::gpiote::InputChannelPolarity::HiToLo,
     );
-    let counter = timerv2::Timer::new(timerv2::TimerInstance::TIMER0)
+
+    let counter = timerv2::Timer::new(timerv2::TimerInstance::TIMER1)
         .into_counter()
         .with_bitmode(timerv2::Bitmode::B32);
 
-    let timer = timerv2::Timer::new(timerv2::TimerInstance::TIMER1)
+    let my_timer = timerv2::Timer::new(timerv2::TimerInstance::TIMER2)
         .into_timer()
         .with_bitmode(timerv2::Bitmode::B32);
 
@@ -264,15 +265,17 @@ pub async fn sensors_task(mut p: Peripherals) {
 
     // Start both timers.
     counter.start();
-    timer.start();
+    my_timer.start();
 
     loop {
-        let cc = counter.cc(0).capture();
-        let timer_val = timer.cc(0).capture();
-        info!("Freq: {}Hz at time: {}", cc, timer_val);
-        // TODO: Clear pare sa faca ceva gresit... incurca intreruperile softdevice-ului
-        // counter.clear();
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after(Duration::from_millis(100)).await;
+        let cc = counter.cc(0).capture() as u64;
+        let timer_val = my_timer.cc(0).capture() as u64;
+        let freq: u32 = ((cc * 1_000_000) / timer_val) as u32;
+        info!("Freq: {}Hz", freq);
+
+        counter.clear();
+        my_timer.clear();
     }
 
     // let mut sensors = Sensors::new();
