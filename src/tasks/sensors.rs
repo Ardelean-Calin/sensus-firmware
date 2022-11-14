@@ -256,7 +256,8 @@ pub async fn sensors_task(mut p: Peripherals) {
 
     let my_timer = timerv2::Timer::new(timerv2::TimerInstance::TIMER2)
         .into_timer()
-        .with_bitmode(timerv2::Bitmode::B32);
+        .with_bitmode(timerv2::Bitmode::B32)
+        .with_frequency(timerv2::Frequency::F1MHz);
 
     // let counter = embassy_nrf::timer::Timer::new(&mut p.TIMER0).into_counter();
     // let timer = embassy_nrf::timer::Timer::new_awaitable(&mut p.TIMER1, interrupt::take!(TIMER1));

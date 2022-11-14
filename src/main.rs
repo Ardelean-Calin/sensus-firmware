@@ -3,6 +3,8 @@
 #![feature(type_alias_impl_trait)]
 #![feature(future_join)]
 
+#[path = "tasks/app.rs"]
+mod app;
 #[path = "tasks/ble.rs"]
 mod ble;
 #[path = "../common.rs"]
@@ -83,14 +85,12 @@ async fn main(spawner: Spawner) {
     // Configure Pin 21 as reset pin (for now)
     configure_reset_pin();
 
-    let mut config = embassy_nrf::config::Config::default();
-    config.hfclk_source = embassy_nrf::config::HfclkSource::ExternalXtal;
-    config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
-    config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
-
-    // Peripherals config
-    let p = embassy_nrf::init(config);
+    // I need to create two tasks
+    // 1) BLE task => Handles everything BLE
+    // 2) Application task => Handles my application; Split into sub-tasks (coroutines):
+    //      a) Aquisition coroutine => Handles data aquisition
+    //      b) Timer coroutine => Handles keeping time & triggering the aquisition task
 
     unwrap!(spawner.spawn(ble::ble_task(spawner)));
-    unwrap!(spawner.spawn(sensors::sensors_task(p)));
+    unwrap!(spawner.spawn(app::application_task()));
 }
