@@ -5,56 +5,32 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "probe-rs-debug",
-            "request": "launch",
-            "name": "Debug Plantbuddy",
-            "cwd": "${workspaceFolder}",
-            "connectUnderReset": true,
-            "probe": "1366:0101",
-            "chip": "nRF52832_xxAA",
-            "flashingConfig": {
-                "flashingEnabled": true,
-                "resetAfterFlashing": true,
-                "haltAfterReset": true
-            },
-            "coreConfigs": [
-                {
-                    "coreIndex": 0,
-                    "programBinary": "./target/thumbv7em-none-eabihf/debug/plantbuddy-fw",
-                    "rttEnabled": true,
-                    "rttChannelFormats": [
-                        {
-                            "channelNumber": 0,
-                            "dataFormat": "String", // Format RTT data as String data
-                            "showTimestamps": true // Include host-side timestamps for every line of data transferred from the target RTT output
-                        },
-                    ]
-                }
-            ]
-        },
-        {
-            "cwd": "${workspaceFolder}",
-            "executable": "./target/thumbv7em-none-eabihf/debug/plantbuddy-fw",
-            "name": "Debug with JLink",
+            "cwd": "${workspaceRoot}",
+            "executable": "./target/thumbv7em-none-eabihf/dev-full/plantbuddy-fw",
+            "svdFile": "./nrf52.svd",
+            "name": "Debug with OpenOCD",
             "request": "launch",
             "type": "cortex-debug",
-            "device": "nRF52832_xxAA",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/jlink.cfg",
+                "target/nrf52.cfg",
+            ],
+            "openOCDPreConfigLaunchCommands": [
+                "source [find interface/jlink.cfg]",
+                "transport select swd",
+            ],
+            "postLaunchCommands": [
+                "monitor rtt server start 8765 0",
+                // should span the *right* part of RAM
+                "monitor rtt setup 0x200024b8 0x30 \"SEGGER RTT\"",
+                "monitor rtt start",
+            ],
+            "preLaunchTask": "Open Defmt console",
+            "searchDir": [],
             "runToEntryPoint": "main",
             "showDevDebugOutput": "none",
-            "servertype": "jlink",
-            "interface": "swd",
-            "svdFile": "./nrf52.svd",
-            "rttConfig": {
-                "enabled": true,
-                "address": "auto",
-                "decoders": [
-                    {
-                        "label": "",
-                        "port": 0,
-                        "type": "console"
-                    }
-                ]
-            },
+            "gdbTarget": ":3333",
         },
     ]
 }
