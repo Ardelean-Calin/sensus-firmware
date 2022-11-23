@@ -9,10 +9,8 @@ mod app;
 mod ble;
 #[path = "../common.rs"]
 mod common;
-#[path = "tasks/sensors.rs"]
-mod sensors;
 
-use defmt::{info, *};
+use defmt::unwrap;
 use embassy_executor::Spawner;
 use nrf52832_pac as pac;
 
@@ -78,10 +76,8 @@ pub fn configure_nfc_pins_as_gpio() {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    info!("Hello World!");
-
     // Configure NFC pins as gpio.
-    configure_nfc_pins_as_gpio();
+    // configure_nfc_pins_as_gpio();
     // Configure Pin 21 as reset pin (for now)
     configure_reset_pin();
 
@@ -91,6 +87,17 @@ async fn main(spawner: Spawner) {
     //      a) Aquisition coroutine => Handles data aquisition
     //      b) Timer coroutine => Handles keeping time & triggering the aquisition task
 
+    // Important! We NEED to setup the priorities before initializing the softdevice.
+    // That's why we create the peripheral structure here.
+    let mut config = embassy_nrf::config::Config::default();
+    config.hfclk_source = embassy_nrf::config::HfclkSource::ExternalXtal;
+    config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P7;
+    config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
+    config.lfclk_source = embassy_nrf::config::LfclkSource::InternalRC;
+
+    // Peripherals config
+    let p = embassy_nrf::init(config);
+
+    unwrap!(spawner.spawn(app::application_task(p)));
     unwrap!(spawner.spawn(ble::ble_task(spawner)));
-    unwrap!(spawner.spawn(app::application_task()));
 }

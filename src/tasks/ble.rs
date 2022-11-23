@@ -6,7 +6,7 @@ use core::mem;
 use defmt::{assert_eq, info, *};
 
 use embassy_executor::Spawner;
-use nrf_softdevice::ble::{gatt_server, peripheral, Connection, TxPower};
+use nrf_softdevice::ble::{gatt_server, peripheral, TxPower};
 use nrf_softdevice::{raw, Softdevice};
 use raw::{sd_power_dcdc_mode_set, NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE};
 
@@ -32,7 +32,7 @@ pub async fn ble_task(spawner: Spawner) {
         clock: Some(raw::nrf_clock_lf_cfg_t {
             source: raw::NRF_CLOCK_LF_SRC_RC as u8,
             rc_ctiv: 16,
-            rc_temp_ctiv: 0,
+            rc_temp_ctiv: 2,
             accuracy: raw::NRF_CLOCK_LF_ACCURACY_500_PPM as u8,
         }),
         conn_gap: Some(raw::ble_gap_conn_cfg_t {
@@ -97,8 +97,8 @@ pub async fn ble_task(spawner: Spawner) {
             "Advertising done! Got a connection, trying to negociate higher connection intervals."
         );
         let conn_params = raw::ble_gap_conn_params_t {
-            min_conn_interval: 100,
-            max_conn_interval: 400,
+            min_conn_interval: 100, // 1.25ms units
+            max_conn_interval: 400, // 1.25ms units
             slave_latency: 0,
             conn_sup_timeout: 400, // 4s
         };
