@@ -7,12 +7,21 @@
 mod app;
 #[path = "tasks/ble.rs"]
 mod ble;
-#[path = "../common.rs"]
-mod common;
 
+// use cortex_m_rt::entry;
 use defmt::unwrap;
 use embassy_executor::Spawner;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
 use nrf52832_pac as pac;
+// use static_cell::StaticCell;
+
+static SENSOR_DATA: Mutex<ThreadModeRawMutex, Option<app::SensorData>> = Mutex::new(None);
+// static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
+
+// extern "C" {
+//     pub fn ble_app_init();
+// }
 
 // Reconfigure UICR to enable reset pin if required (resets if changed).
 pub fn configure_reset_pin() {
@@ -73,6 +82,26 @@ pub fn configure_nfc_pins_as_gpio() {
         cortex_m::peripheral::SCB::sys_reset();
     }
 }
+
+// #[entry]
+// fn main() -> ! {
+//     let mut config = embassy_nrf::config::Config::default();
+//     config.hfclk_source = embassy_nrf::config::HfclkSource::ExternalXtal;
+//     config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P7;
+//     config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
+//     config.lfclk_source = embassy_nrf::config::LfclkSource::InternalRC;
+
+//     // Peripherals config
+//     let p = embassy_nrf::init(config);
+//     unsafe {
+//         ble_app_init();
+//     }
+//     let executor = EXECUTOR_LOW.init(Executor::new());
+//     executor.run(|spawner| {
+//         unwrap!(spawner.spawn(app::application_task(p)));
+//         // unwrap!(spawner.spawn(ble::ble_task(spawner)));
+//     });
+// }
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {

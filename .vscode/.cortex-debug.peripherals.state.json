@@ -1,1 +1,1 @@
-[]
+[{"node":"PPI","expanded":true,"format":0,"pinned":false},{"node":"PPI.CH[0]","expanded":true,"format":0},{"node":"PPI.CH[0].EEP","expanded":true,"format":0},{"node":"PPI.CH[0].TEP","expanded":true,"format":0},{"node":"TIMER0.CC[0]","expanded":true,"format":0},{"node":"TIMER1","expanded":true,"format":0,"pinned":false},{"node":"TIMER2","expanded":true,"format":0,"pinned":false},{"node":"TIMER2.CC[0]","expanded":true,"format":0}]

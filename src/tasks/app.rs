@@ -1,3 +1,5 @@
+use core::mem;
+
 use defmt::{info, Format};
 use embassy_nrf::{
     self,
@@ -29,6 +31,8 @@ use soil_sensor::SoilSensor;
 use ltr303_async::{self};
 use shared_bus::{BusManager, NullMutex};
 use shtc3_async::{self};
+
+use crate::SENSOR_DATA;
 
 // Constants
 const MEAS_INTERVAL: Duration = Duration::from_secs(5);
@@ -115,12 +119,24 @@ impl<'a> Hardware<'a> {
 }
 
 #[derive(Format)]
-struct SensorData {
-    battery_voltage: u32,
-    sht_data: shtc3_async::SHTC3Result,
-    ltr_data: ltr303_async::LTR303Result,
-    soil_temperature: f32,
-    soil_moisture: u32,
+pub struct SensorData {
+    pub battery_voltage: u32,
+    pub sht_data: shtc3_async::SHTC3Result,
+    pub ltr_data: ltr303_async::LTR303Result,
+    pub soil_temperature: f32,
+    pub soil_moisture: u32,
+}
+
+impl Default for SensorData {
+    fn default() -> Self {
+        Self {
+            battery_voltage: Default::default(),
+            sht_data: Default::default(),
+            ltr_data: Default::default(),
+            soil_temperature: Default::default(),
+            soil_moisture: Default::default(),
+        }
+    }
 }
 
 struct Sensors {}
@@ -177,6 +193,12 @@ pub async fn application_task(mut p: Peripherals) {
         let sensors = Sensors::new();
         let sensor_data = sensors.sample(used_hardware).await;
         info!("{:?}", sensor_data);
+
+        // Update global sensor data mutex.
+        let mut m = SENSOR_DATA.lock().await;
+        let _x = m.insert(sensor_data);
+        mem::drop(m); // Unlock the mutex.
+
         // I also have diagnostic data. Stuff like "is the battery connected? Is it charging?"
         // let diag = Diagnostics::new();
         // let diag_data = diag.get_diag_data(&mut p); // I should be able to use a mutable reference here, since hardware went out of scope.

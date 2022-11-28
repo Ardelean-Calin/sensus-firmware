@@ -6,4 +6,4 @@ runner = "probe-run --chip nRF52832_xxAA"
 target = "thumbv7em-none-eabihf" # Cortex-M4F and Cortex-M7F (with FPU)
 
 [env]
-DEFMT_LOG = "trace"
+DEFMT_LOG = "debug"

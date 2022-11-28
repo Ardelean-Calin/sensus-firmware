@@ -6,24 +6,177 @@ use core::mem;
 use defmt::{assert_eq, info, *};
 
 use embassy_executor::Spawner;
-use nrf_softdevice::ble::{gatt_server, peripheral, TxPower};
+use embassy_time::{Duration, Timer};
+use futures::pin_mut;
+use nrf_softdevice::ble::gatt_server::{NotifyValueError, SetValueError};
+use nrf_softdevice::ble::{gatt_server, peripheral, Connection, TxPower};
 use nrf_softdevice::{raw, Softdevice};
 use raw::{sd_power_dcdc_mode_set, NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE};
+
+use crate::app::SensorData;
+use crate::SENSOR_DATA;
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
     sd.run().await
 }
 
-#[nrf_softdevice::gatt_service(uuid = "180f")]
-struct BatteryService {
-    #[characteristic(uuid = "2a19", read, notify)]
-    battery_level: u32,
+#[nrf_softdevice::gatt_service(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a600323d")]
+struct MainService {
+    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a601323d", read, notify)]
+    battery_level: u16,
+    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a602323d", read, notify)]
+    temperature: i32,
+    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a603323d", read, notify)]
+    humidity: u32,
+    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a604323d", read, notify)]
+    illuminance: u16,
+    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a605323d", read, notify)]
+    flags: u8, // Different flags. Charging, plugged in, etc.
 }
+
+#[nrf_softdevice::gatt_service(uuid = "08a6f86b-0bed-43fd-ad64-bc1c82003301")]
+struct ProbeService {
+    #[characteristic(uuid = "08a6f86b-0bed-43fd-ad64-bc1c82013301", read, notify)]
+    frequency: u32,
+    #[characteristic(uuid = "08a6f86b-0bed-43fd-ad64-bc1c82023301", read, notify)]
+    temperature: f32,
+}
+
+#[nrf_softdevice::gatt_service(uuid = "3913a152-fffb-45af-95f6-9177d2005e39")]
+struct ControlService {}
 
 #[nrf_softdevice::gatt_server]
 struct Server {
-    bas: BatteryService,
+    main: MainService,
+    probe: ProbeService,
+    // control: ControlService,
+}
+
+fn update_main_char(
+    server: &Server,
+    conn: &Connection,
+    data: &SensorData,
+) -> Result<(), SetValueError> {
+    server
+        .main
+        .battery_level_notify(conn, data.battery_voltage as u16)
+        .or_else(|_| server.main.battery_level_set(data.battery_voltage as u16))?;
+    server
+        .main
+        .humidity_notify(conn, data.sht_data.humidity.as_millipercent())
+        .or_else(|_| {
+            server
+                .main
+                .humidity_set(data.sht_data.humidity.as_millipercent())
+        })?;
+    server
+        .main
+        .temperature_notify(conn, data.sht_data.temperature.as_millidegrees_celsius())
+        .or_else(|_| {
+            server
+                .main
+                .temperature_set(data.sht_data.temperature.as_millidegrees_celsius())
+        })?;
+    server
+        .main
+        .illuminance_notify(conn, data.ltr_data.lux)
+        .or_else(|_| server.main.illuminance_set(data.ltr_data.lux))?;
+    Ok(())
+}
+
+fn update_probe_char(
+    server: &Server,
+    conn: &Connection,
+    data: &SensorData,
+) -> Result<(), SetValueError> {
+    server
+        .probe
+        .frequency_notify(conn, data.soil_moisture)
+        .or_else(|_| server.probe.frequency_set(data.soil_moisture))?;
+
+    server
+        .probe
+        .temperature_notify(conn, data.soil_temperature)
+        .or_else(|_| server.probe.temperature_set(data.soil_temperature))?;
+
+    Ok(())
+}
+
+async fn update_gatt(server: &Server, connection: &Connection) {
+    loop {
+        let sensor_data = SENSOR_DATA.lock().await;
+        match sensor_data.as_ref() {
+            Some(data) => {
+                update_main_char(server, connection, data).unwrap();
+                update_probe_char(server, connection, data).unwrap();
+            }
+            None => {}
+        }
+
+        // Unlock mutex.
+        mem::drop(sensor_data);
+
+        // Only update every second. TODO: might replace with pub-sub model to be more efficient.
+        Timer::after(Duration::from_secs(1)).await;
+    }
+}
+
+async fn run_bluetooth(sd: &'static Softdevice, server: &Server) {
+    #[rustfmt::skip]
+    let adv_data = &[
+        0x02, 0x01, raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8,
+        0x03, 0x03, 0x09, 0x18,
+        0x0a, 0x09, b'R', b'u', b's', b't', b'y', b'B', b'u', b't', b't',
+        // 0x0a, 0x09, b'H', b'e', b'l', b'l', b'o', b'R', b'u', b's', b't',
+    ];
+    #[rustfmt::skip]
+    let scan_data = &[
+        0x03, 0x03, 0x09, 0x18,
+    ];
+
+    loop {
+        let mut config = peripheral::Config::default();
+        // equivalent to 1000ms
+        config.interval = 1600;
+        config.tx_power = TxPower::Plus4dBm;
+
+        let adv = peripheral::ConnectableAdvertisement::ScannableUndirected {
+            adv_data,
+            scan_data,
+        };
+        let conn = unwrap!(peripheral::advertise_connectable(sd, adv, &config).await);
+        info!(
+            "Advertising done! Got a connection, trying to negociate higher connection intervals."
+        );
+        let conn_params = raw::ble_gap_conn_params_t {
+            min_conn_interval: 100, // 1.25ms units
+            max_conn_interval: 400, // 1.25ms units
+            slave_latency: 0,
+            conn_sup_timeout: 400, // 4s
+        };
+
+        conn.set_conn_params(conn_params).unwrap();
+        gatt_server::set_sys_attrs(&conn, None).unwrap();
+
+        // Run the GATT server on the connection. This returns when the connection gets disconnected.
+        let gatt_server_fut = gatt_server::run(&conn, server, |_e| {});
+        let gatt_update_fut = update_gatt(&server, &conn);
+
+        pin_mut!(gatt_server_fut);
+        pin_mut!(gatt_update_fut);
+
+        let res = futures::future::select(gatt_server_fut, gatt_update_fut).await;
+
+        match res {
+            futures::future::Either::Left((gatt_res, _)) => {
+                if let Err(e) = gatt_res {
+                    info!("gatt_server run exited with error: {:?}", e);
+                }
+            }
+            futures::future::Either::Right(_) => {}
+        }
+    }
 }
 
 #[embassy_executor::task]
@@ -65,57 +218,11 @@ pub async fn ble_task(spawner: Spawner) {
         let ret = sd_power_dcdc_mode_set(NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE as u8);
         assert_eq!(ret, 0, "Error when enabling DC/DC converter: {}", ret);
     }
-    let server = unwrap!(Server::new(sd));
 
+    // Enable the softdevice.
+    let server = unwrap!(Server::new(sd));
     unwrap!(spawner.spawn(softdevice_task(sd)));
 
-    #[rustfmt::skip]
-    let adv_data = &[
-        0x02, 0x01, raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8,
-        0x03, 0x03, 0x09, 0x18,
-        0x0a, 0x09, b'R', b'u', b's', b't', b'y', b'B', b'u', b't', b't',
-        // 0x0a, 0x09, b'H', b'e', b'l', b'l', b'o', b'R', b'u', b's', b't',
-    ];
-    #[rustfmt::skip]
-    let scan_data = &[
-        0x03, 0x03, 0x09, 0x18,
-    ];
-
-    // Infinite loop, so that we can reconnect.
-    loop {
-        let mut config = peripheral::Config::default();
-        // equivalent to 1000ms
-        config.interval = 1600;
-        config.tx_power = TxPower::Plus4dBm;
-
-        let adv = peripheral::ConnectableAdvertisement::ScannableUndirected {
-            adv_data,
-            scan_data,
-        };
-        let conn = unwrap!(peripheral::advertise_connectable(sd, adv, &config).await);
-        info!(
-            "Advertising done! Got a connection, trying to negociate higher connection intervals."
-        );
-        let conn_params = raw::ble_gap_conn_params_t {
-            min_conn_interval: 100, // 1.25ms units
-            max_conn_interval: 400, // 1.25ms units
-            slave_latency: 0,
-            conn_sup_timeout: 400, // 4s
-        };
-        unwrap!(conn.set_conn_params(conn_params));
-
-        // Run the GATT server on the connection. This returns when the connection gets disconnected.
-        let res = gatt_server::run(&conn, &server, |e| match e {
-            ServerEvent::Bas(e) => match e {
-                BatteryServiceEvent::BatteryLevelCccdWrite { notifications } => {
-                    info!("battery notifications: {}", notifications)
-                }
-            },
-        })
-        .await;
-
-        if let Err(e) = res {
-            info!("gatt_server run exited with error: {:?}", e);
-        }
-    }
+    // Does not return.
+    run_bluetooth(sd, &server).await;
 }
