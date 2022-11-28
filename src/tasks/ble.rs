@@ -40,7 +40,7 @@ struct ProbeService {
     #[characteristic(uuid = "08a6f86b-0bed-43fd-ad64-bc1c82013301", read, notify)]
     frequency: u32,
     #[characteristic(uuid = "08a6f86b-0bed-43fd-ad64-bc1c82023301", read, notify)]
-    temperature: f32,
+    temperature: i32,
 }
 
 #[nrf_softdevice::gatt_service(uuid = "3913a152-fffb-45af-95f6-9177d2005e39")]

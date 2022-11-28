@@ -127,7 +127,7 @@ pub struct SensorData {
     pub battery_voltage: u32,
     pub sht_data: shtc3_async::SHTC3Result,
     pub ltr_data: ltr303_async::LTR303Result,
-    pub soil_temperature: f32,
+    pub soil_temperature: i32,
     pub soil_moisture: u32,
 }
 
@@ -179,7 +179,7 @@ impl Sensors {
         hw.enable_pin.set_low();
 
         let (sht_data, ltr_data) = environment_result;
-        let (soil_humidity, soil_temperature) = probe_result.unwrap_or_else(|_| (0, 0.0));
+        let (soil_humidity, soil_temperature) = probe_result.unwrap_or_else(|_| (0, 0));
 
         // I could have some type of field representing invalid data. InvalidData<LastData>. This way, in case
         // of an error I keep the last received value (or 0 if no value) and just wrap it inside InvalidData
