@@ -3,10 +3,10 @@ use core::mem;
 use defmt::{info, Format};
 use embassy_nrf::{
     self,
-    gpio::{Input, Level, Output, OutputDrive},
+    gpio::{Input, Level, Output, OutputDrive, Pull},
     gpiote::InputChannel,
     interrupt,
-    peripherals::{GPIOTE_CH0, P0_06, P0_19, PPI_CH0, TWISPI0},
+    peripherals::{GPIOTE_CH0, P0_06, P0_19, P0_20, PPI_CH0, TWISPI0},
     ppi::Ppi,
     saadc::{self, Saadc},
     timerv2::{self, CounterType, TimerType},
@@ -47,6 +47,7 @@ struct Hardware<'a> {
     // Two v2 timers for the frequency measurement as well as one PPI channel.
     freq_cnter: timerv2::Timer<CounterType>,
     freq_timer: timerv2::Timer<TimerType>,
+    probe_detect: Input<'a, P0_20>,
     adc: Saadc<'a, 1>,
     // Private variables. Why? Because they get dropped if I don't store them here.
     _ppi_ch: Ppi<'a, PPI_CH0, 1, 1>,
@@ -103,6 +104,8 @@ impl<'a> Hardware<'a> {
             Ppi::new_one_to_one(&mut p.PPI_CH0, freq_in.event_in(), counter.task_count());
         ppi_ch.enable();
 
+        let probe_detect = Input::new(&mut p.P0_20, Pull::Up);
+
         // Create new struct. If I don't store ppi_ch and freq_in inside the struct, they will get dropped from
         // memory when I get here, causing Frequency Measurement to not work. Therefore I store them in private
         // fields.
@@ -111,6 +114,7 @@ impl<'a> Hardware<'a> {
             i2c_bus: i2c_bus,
             freq_cnter: counter,
             freq_timer: my_timer,
+            probe_detect: probe_detect,
             adc: saadc,
             _ppi_ch: ppi_ch,
             _freq_in: freq_in,
@@ -154,12 +158,17 @@ impl Sensors {
         let env_sensors =
             EnvironmentSensors::new(hw.i2c_bus.acquire_i2c(), hw.i2c_bus.acquire_i2c());
         // Probe data: soil moisture & temperature.
-        let probe_sensor = SoilSensor::new(hw.freq_timer, hw.freq_cnter, hw.i2c_bus.acquire_i2c());
+        let probe_sensor = SoilSensor::new(
+            hw.freq_timer,
+            hw.freq_cnter,
+            hw.i2c_bus.acquire_i2c(),
+            hw.probe_detect,
+        );
         // Battery voltage sensor. TODO could also be battery status
         let mut batt_sensor = BatterySensor::new(hw.adc);
 
         // Sample everything at the same time to save processing time.
-        let ((sht_data, ltr_data), (soil_humidity, soil_temperature), batt_mv) = join3(
+        let (environment_result, probe_result, batt_mv) = join3(
             env_sensors.sample(),
             probe_sensor.sample(),
             batt_sensor.sample_mv(),
@@ -168,6 +177,13 @@ impl Sensors {
 
         // Disable Soil probe.
         hw.enable_pin.set_low();
+
+        let (sht_data, ltr_data) = environment_result;
+        let (soil_humidity, soil_temperature) = probe_result.unwrap_or_else(|_| (0, 0.0));
+
+        // I could have some type of field representing invalid data. InvalidData<LastData>. This way, in case
+        // of an error I keep the last received value (or 0 if no value) and just wrap it inside InvalidData
+        // to mark it as being non-valid.
         SensorData {
             battery_voltage: batt_mv,
             sht_data: sht_data,
