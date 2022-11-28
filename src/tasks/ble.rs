@@ -137,8 +137,8 @@ async fn run_bluetooth(sd: &'static Softdevice, server: &Server) {
 
     loop {
         let mut config = peripheral::Config::default();
-        // equivalent to 1000ms
-        config.interval = 1600;
+        // equivalent to 100ms
+        config.interval = 160;
         config.tx_power = TxPower::Plus4dBm;
 
         let adv = peripheral::ConnectableAdvertisement::ScannableUndirected {
