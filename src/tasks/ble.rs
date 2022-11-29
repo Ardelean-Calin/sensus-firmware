@@ -6,15 +6,13 @@ use core::mem;
 use defmt::{assert_eq, info, *};
 
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
 use futures::pin_mut;
-use nrf_softdevice::ble::gatt_server::{NotifyValueError, SetValueError};
+use nrf_softdevice::ble::gatt_server::SetValueError;
 use nrf_softdevice::ble::{gatt_server, peripheral, Connection, TxPower};
 use nrf_softdevice::{raw, Softdevice};
 use raw::{sd_power_dcdc_mode_set, NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE};
 
-use crate::app::SensorData;
-use crate::SENSOR_DATA;
+use crate::app::{DataPacket, SensorData, SENSOR_DATA_BUS};
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
@@ -24,23 +22,9 @@ async fn softdevice_task(sd: &'static Softdevice) -> ! {
 #[nrf_softdevice::gatt_service(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a600323d")]
 struct MainService {
     #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a601323d", read, notify)]
-    battery_level: u16,
-    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a602323d", read, notify)]
-    temperature: i32,
-    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a603323d", read, notify)]
-    humidity: u32,
-    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a604323d", read, notify)]
-    illuminance: u16,
-    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a605323d", read, notify)]
-    flags: u8, // Different flags. Charging, plugged in, etc.
-}
-
-#[nrf_softdevice::gatt_service(uuid = "08a6f86b-0bed-43fd-ad64-bc1c82003301")]
-struct ProbeService {
-    #[characteristic(uuid = "08a6f86b-0bed-43fd-ad64-bc1c82013301", read, notify)]
-    frequency: u32,
-    #[characteristic(uuid = "08a6f86b-0bed-43fd-ad64-bc1c82023301", read, notify)]
-    temperature: i32,
+    all_data: [u8; 14],
+    // #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a605323d", read, notify)]
+    // flags: u8, // Different flags. Charging, plugged in, etc.
 }
 
 #[nrf_softdevice::gatt_service(uuid = "3913a152-fffb-45af-95f6-9177d2005e39")]
@@ -49,76 +33,26 @@ struct ControlService {}
 #[nrf_softdevice::gatt_server]
 struct Server {
     main: MainService,
-    probe: ProbeService,
     // control: ControlService,
 }
 
 fn update_main_char(
     server: &Server,
     conn: &Connection,
-    data: &SensorData,
+    data: &DataPacket,
 ) -> Result<(), SetValueError> {
-    server
-        .main
-        .battery_level_notify(conn, data.battery_voltage as u16)
-        .or_else(|_| server.main.battery_level_set(data.battery_voltage as u16))?;
-    server
-        .main
-        .humidity_notify(conn, data.sht_data.humidity.as_millipercent())
-        .or_else(|_| {
-            server
-                .main
-                .humidity_set(data.sht_data.humidity.as_millipercent())
-        })?;
-    server
-        .main
-        .temperature_notify(conn, data.sht_data.temperature.as_millidegrees_celsius())
-        .or_else(|_| {
-            server
-                .main
-                .temperature_set(data.sht_data.temperature.as_millidegrees_celsius())
-        })?;
-    server
-        .main
-        .illuminance_notify(conn, data.ltr_data.lux)
-        .or_else(|_| server.main.illuminance_set(data.ltr_data.lux))?;
-    Ok(())
-}
-
-fn update_probe_char(
-    server: &Server,
-    conn: &Connection,
-    data: &SensorData,
-) -> Result<(), SetValueError> {
-    server
-        .probe
-        .frequency_notify(conn, data.soil_moisture)
-        .or_else(|_| server.probe.frequency_set(data.soil_moisture))?;
-
-    server
-        .probe
-        .temperature_notify(conn, data.soil_temperature)
-        .or_else(|_| server.probe.temperature_set(data.soil_temperature))?;
-
+    server.main.all_data_set(data.to_bytes_array())?;
+    let _ = server.main.all_data_notify(conn, data.to_bytes_array());
     Ok(())
 }
 
 async fn update_gatt(server: &Server, connection: &Connection) {
+    let mut data_subscriber = unwrap!(SENSOR_DATA_BUS.subscriber());
     loop {
-        let sensor_data = SENSOR_DATA.lock().await;
-        match sensor_data.as_ref() {
-            Some(data) => {
-                update_main_char(server, connection, data).unwrap();
-                update_probe_char(server, connection, data).unwrap();
-            }
-            None => {}
-        }
-
-        // Unlock mutex.
-        mem::drop(sensor_data);
-
-        // Only update every second. TODO: might replace with pub-sub model to be more efficient.
-        Timer::after(Duration::from_secs(1)).await;
+        // Blocks until the application task (TODO change to "data aquisition task") publishes new data.
+        let sensor_data = data_subscriber.next_message_pure().await;
+        info!("BLE got new data: {:?}", sensor_data);
+        update_main_char(server, connection, &sensor_data).unwrap();
     }
 }
 

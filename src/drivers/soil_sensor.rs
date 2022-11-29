@@ -1,9 +1,15 @@
+use defmt::Format;
 use embassy_nrf::{
-    gpio::{AnyPin, Input, Pin},
-    saadc::AnyInput,
+    gpio::{Input, Pin},
     timerv2::{CounterType, Timer, TimerType},
 };
 use embedded_hal::blocking::i2c::*;
+
+#[derive(Format, Clone, Default)]
+pub struct ProbeData {
+    pub soil_temperature: u16, // unit: 0.1K
+    pub soil_moisture: u32,    // unit: Hz
+}
 
 #[derive(Debug)]
 pub enum ProbeError {
@@ -53,17 +59,23 @@ where
 
     /// Triggers an asynchronous sampling of soil moisture and soil temperature and returns the result.
     /// TODO: Unfortunately, I take ownership of self and never return it back. I am not experienced enough to fix this for now.
-    pub async fn sample(self) -> Result<(u32, i32), ProbeError> {
+    pub async fn sample(self) -> Result<ProbeData, ProbeError> {
         // Check if probe is connected.
         self.check_connection()?;
         // Split into two: sample the temperature & sample the moisture.
         let freq = self.sample_soil_water().await;
         let temp = self.sample_soil_temp()?;
 
-        Ok((freq, temp))
+        let probe_data = ProbeData {
+            soil_moisture: freq,
+            soil_temperature: ((temp + 273150) / 100) as u16,
+        };
+
+        Ok(probe_data)
     }
 
     /// Measure soil temperature via a Tmp112 sensor mounted on the probe.
+    /// Returns the soil temperature in millidegrees C
     fn sample_soil_temp(self) -> Result<i32, ProbeError> {
         let mut tmp112_sensor = tmp1x2::Tmp1x2::new(self.i2c_tmp, tmp1x2::SlaveAddr::Default);
         let soil_temp = tmp112_sensor
@@ -71,7 +83,7 @@ where
             .map_err(|_| ProbeError::ProbeCommError)?;
         // Convert to millidegree C
         let soil_temp = (soil_temp * 1000.0) as i32;
-        // info!("Soil temperature: {:?}", soil_temp);
+
         Ok(soil_temp)
     }
 

@@ -5,6 +5,8 @@ use futures::future::join;
 use ltr303_async::Ltr303;
 use shtc3_async::Shtc3;
 
+use super::EnvironmentData;
+
 pub struct EnvironmentSensors<T> {
     i2c_sht: T,
     i2c_ltr: T,
@@ -19,7 +21,7 @@ where
         EnvironmentSensors { i2c_sht, i2c_ltr }
     }
 
-    pub async fn sample(self) -> (shtc3_async::SHTC3Result, ltr303_async::LTR303Result) {
+    pub async fn sample(self) -> EnvironmentData {
         let mut sht_sensor = Shtc3::new(self.i2c_sht);
         let mut ltr_sensor = Ltr303::new(self.i2c_ltr);
         let mut delay1 = Delay;
@@ -31,6 +33,8 @@ where
         )
         .await;
 
-        (result_sht.unwrap(), result_ltr.unwrap())
+        let data = EnvironmentData::new(result_sht.unwrap(), result_ltr.unwrap());
+
+        data
     }
 }

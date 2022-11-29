@@ -1,6 +1,6 @@
 use core::mem;
 
-use defmt::{info, Format};
+use defmt::{info, unwrap, Format};
 use embassy_nrf::{
     self,
     gpio::{Input, Level, Output, OutputDrive, Pull},
@@ -13,6 +13,8 @@ use embassy_nrf::{
     twim::{self, Twim},
     Peripherals,
 };
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::pubsub::PubSubChannel;
 use embassy_time::{Duration, Instant, Timer};
 use futures::future::join3;
 
@@ -28,11 +30,106 @@ use environment::EnvironmentSensors;
 mod soil_sensor;
 use soil_sensor::SoilSensor;
 
-use ltr303_async::{self};
+use ltr303_async::{self, LTR303Result};
 use shared_bus::{BusManager, NullMutex};
-use shtc3_async::{self};
+use shtc3_async::{self, SHTC3Result};
 
-use crate::SENSOR_DATA;
+use self::soil_sensor::ProbeData;
+
+// Data we get from main PCB:
+//  2 bytes for battery voltage  => u16; unit: mV
+//  2 bytes for air temperature  => u16; unit: 0.1 Kelvin
+//  2 bytes for air humidity     => u16; unit: 0.01%
+//  2 bytes for illuminance      => u16; unit: Lux
+// Data we get from (optional) soil probe:
+//  2 bytes for soil temperature => u16; unit: 0.1 Kelvin
+//  4 bytes for soil moisture    => u32; unit: Hertz
+//
+// TODO:
+//  1) We can encode soil moisture in percentages if we can find a way to directly map
+//     frequency to %.
+//  2) We can further "compress" the bytes. For example, temperature in Kelvin can be
+//     expressed with 9 bits. 0-512
+#[derive(Format, Clone)]
+pub struct SensorData {
+    pub battery_voltage: u32,
+    pub sht_data: shtc3_async::SHTC3Result,
+    pub ltr_data: ltr303_async::LTR303Result,
+    pub soil_temperature: i32,
+    pub soil_moisture: u32,
+}
+
+#[derive(Format, Clone)]
+
+pub struct EnvironmentData {
+    air_temperature: u16, // unit: 0.1K
+    air_humidity: u16,    // unit: 0.1%
+    illuminance: u16,     // unit: Lux
+}
+
+impl EnvironmentData {
+    fn new(sht_data: SHTC3Result, ltr_data: LTR303Result) -> Self {
+        EnvironmentData {
+            air_temperature: ((sht_data.temperature.as_millidegrees_celsius() + 273150) / 100)
+                as u16,
+            air_humidity: (sht_data.humidity.as_millipercent() / 100) as u16,
+            illuminance: ltr_data.lux,
+        }
+    }
+}
+
+// 14 bytes total.
+#[derive(Format, Clone)]
+pub struct DataPacket {
+    pub battery_voltage: u16, // unit: mV
+    pub env_data: EnvironmentData,
+    pub probe_data: ProbeData,
+}
+
+impl DataPacket {
+    pub fn to_bytes_array(&self) -> [u8; 14] {
+        let mut arr = [0u8; 14];
+        // Encode battery voltage
+        arr[0] = self.battery_voltage.to_be_bytes()[0];
+        arr[1] = self.battery_voltage.to_be_bytes()[1];
+        // Encode air temperature
+        arr[2] = self.env_data.air_temperature.to_be_bytes()[0];
+        arr[3] = self.env_data.air_temperature.to_be_bytes()[1];
+        // Encode air humidity
+        arr[4] = self.env_data.air_humidity.to_be_bytes()[0];
+        arr[5] = self.env_data.air_humidity.to_be_bytes()[1];
+        // Encode solar illuminance
+        arr[6] = self.env_data.illuminance.to_be_bytes()[0];
+        arr[7] = self.env_data.illuminance.to_be_bytes()[1];
+        // Probe data
+        // Encode soil temperature
+        arr[8] = self.probe_data.soil_temperature.to_be_bytes()[0];
+        arr[9] = self.probe_data.soil_temperature.to_be_bytes()[1];
+        // Encode soil moisture
+        arr[10] = self.probe_data.soil_moisture.to_be_bytes()[0];
+        arr[11] = self.probe_data.soil_moisture.to_be_bytes()[1];
+        arr[12] = self.probe_data.soil_moisture.to_be_bytes()[2];
+        arr[13] = self.probe_data.soil_moisture.to_be_bytes()[3];
+
+        arr
+    }
+}
+
+impl Default for SensorData {
+    fn default() -> Self {
+        Self {
+            battery_voltage: Default::default(),
+            sht_data: Default::default(),
+            ltr_data: Default::default(),
+            soil_temperature: Default::default(),
+            soil_moisture: Default::default(),
+        }
+    }
+}
+
+// Sensor data transmission channel. Queue of 4. 1 publisher, 3 subscribers
+pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 1> =
+    PubSubChannel::new();
 
 // Constants
 const MEAS_INTERVAL: Duration = Duration::from_secs(5);
@@ -122,34 +219,13 @@ impl<'a> Hardware<'a> {
     }
 }
 
-#[derive(Format)]
-pub struct SensorData {
-    pub battery_voltage: u32,
-    pub sht_data: shtc3_async::SHTC3Result,
-    pub ltr_data: ltr303_async::LTR303Result,
-    pub soil_temperature: i32,
-    pub soil_moisture: u32,
-}
-
-impl Default for SensorData {
-    fn default() -> Self {
-        Self {
-            battery_voltage: Default::default(),
-            sht_data: Default::default(),
-            ltr_data: Default::default(),
-            soil_temperature: Default::default(),
-            soil_moisture: Default::default(),
-        }
-    }
-}
-
 struct Sensors {}
 impl Sensors {
     fn new() -> Self {
         Self {}
     }
 
-    async fn sample<'a>(&'a self, mut hw: Hardware<'a>) -> SensorData {
+    async fn sample<'a>(&'a self, mut hw: Hardware<'a>) -> DataPacket {
         // Enable Soil probe.
         hw.enable_pin.set_high();
         Timer::after(Duration::from_millis(2)).await;
@@ -168,7 +244,7 @@ impl Sensors {
         let mut batt_sensor = BatterySensor::new(hw.adc);
 
         // Sample everything at the same time to save processing time.
-        let (environment_result, probe_result, batt_mv) = join3(
+        let (environment_data, probe_data, batt_mv) = join3(
             env_sensors.sample(),
             probe_sensor.sample(),
             batt_sensor.sample_mv(),
@@ -178,18 +254,13 @@ impl Sensors {
         // Disable Soil probe.
         hw.enable_pin.set_low();
 
-        let (sht_data, ltr_data) = environment_result;
-        let (soil_humidity, soil_temperature) = probe_result.unwrap_or_else(|_| (0, 0));
-
         // I could have some type of field representing invalid data. InvalidData<LastData>. This way, in case
         // of an error I keep the last received value (or 0 if no value) and just wrap it inside InvalidData
         // to mark it as being non-valid.
-        SensorData {
+        DataPacket {
             battery_voltage: batt_mv,
-            sht_data: sht_data,
-            ltr_data: ltr_data,
-            soil_temperature: soil_temperature,
-            soil_moisture: soil_humidity,
+            env_data: environment_data,
+            probe_data: probe_data.unwrap_or_default(),
         }
     }
 }
@@ -199,6 +270,7 @@ pub async fn application_task(mut p: Peripherals) {
     // Used interrupts; Need to be declared only once otherwise we get a core panic.
     let mut adc_irq = interrupt::take!(SAADC);
     let mut i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+    let data_publisher = unwrap!(SENSOR_DATA_BUS.publisher());
 
     // The application runs indefinitely.
     loop {
@@ -210,10 +282,8 @@ pub async fn application_task(mut p: Peripherals) {
         let sensor_data = sensors.sample(used_hardware).await;
         info!("{:?}", sensor_data);
 
-        // Update global sensor data mutex.
-        let mut m = SENSOR_DATA.lock().await;
-        let _x = m.insert(sensor_data);
-        mem::drop(m); // Unlock the mutex.
+        // Publish the measured data.
+        data_publisher.publish_immediate(sensor_data);
 
         // I also have diagnostic data. Stuff like "is the battery connected? Is it charging?"
         // let diag = Diagnostics::new();
