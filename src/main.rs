@@ -11,13 +11,7 @@ mod ble;
 // use cortex_m_rt::entry;
 use defmt::unwrap;
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::mutex::Mutex;
 use nrf52832_pac as pac;
-// use static_cell::StaticCell;
-
-static SENSOR_DATA: Mutex<ThreadModeRawMutex, Option<app::SensorData>> = Mutex::new(None);
-// static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
 
 // extern "C" {
 //     pub fn ble_app_init();
@@ -127,6 +121,6 @@ async fn main(spawner: Spawner) {
     // Peripherals config
     let p = embassy_nrf::init(config);
 
-    unwrap!(spawner.spawn(app::application_task(p)));
-    unwrap!(spawner.spawn(ble::ble_task(spawner)));
+    spawner.must_spawn(app::application_task(p));
+    spawner.must_spawn(ble::ble_task(spawner));
 }
