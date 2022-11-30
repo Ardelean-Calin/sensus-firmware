@@ -36,6 +36,13 @@ use shtc3_async::{self, SHTC3Result};
 
 use self::soil_sensor::ProbeData;
 
+// Sensor data transmission channel. Queue of 4. 1 publisher, 3 subscribers
+pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 1> =
+    PubSubChannel::new();
+
+// Constants
+const MEAS_INTERVAL: Duration = Duration::from_secs(3);
+
 // Data we get from main PCB:
 //  2 bytes for battery voltage  => u16; unit: mV
 //  2 bytes for air temperature  => u16; unit: 0.1 Kelvin
@@ -126,13 +133,6 @@ impl Default for SensorData {
         }
     }
 }
-
-// Sensor data transmission channel. Queue of 4. 1 publisher, 3 subscribers
-pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 1> =
-    PubSubChannel::new();
-
-// Constants
-const MEAS_INTERVAL: Duration = Duration::from_secs(5);
 
 // This struct shall contain all peripherals we use for data aquisition. Easy to track if something
 // changes.
@@ -225,19 +225,16 @@ impl Sensors {
         Self {}
     }
 
-    async fn sample<'a>(&'a self, mut hw: Hardware<'a>) -> DataPacket {
-        // Enable Soil probe.
-        hw.enable_pin.set_high();
-        Timer::after(Duration::from_millis(2)).await;
-
+    async fn sample<'a>(&'a self, hw: Hardware<'a>) -> DataPacket {
         // Environement data: air temperature & humidity, ambient light.
-        let env_sensors =
+        let mut env_sensors =
             EnvironmentSensors::new(hw.i2c_bus.acquire_i2c(), hw.i2c_bus.acquire_i2c());
         // Probe data: soil moisture & temperature.
-        let probe_sensor = SoilSensor::new(
+        let mut probe_sensor = SoilSensor::new(
             hw.freq_timer,
             hw.freq_cnter,
             hw.i2c_bus.acquire_i2c(),
+            hw.enable_pin,
             hw.probe_detect,
         );
         // Battery voltage sensor. TODO could also be battery status
@@ -251,9 +248,6 @@ impl Sensors {
         )
         .await;
 
-        // Disable Soil probe.
-        hw.enable_pin.set_low();
-
         // I could have some type of field representing invalid data. InvalidData<LastData>. This way, in case
         // of an error I keep the last received value (or 0 if no value) and just wrap it inside InvalidData
         // to mark it as being non-valid.
@@ -262,6 +256,8 @@ impl Sensors {
             env_data: environment_data,
             probe_data: probe_data.unwrap_or_default(),
         }
+        // At the end, all our sensors are dropped since we own Hardware. So all peripherals found there
+        // get dropped. That includes i2c, gpio, etc.
     }
 }
 

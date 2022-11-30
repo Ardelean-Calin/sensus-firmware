@@ -8,8 +8,8 @@ use shtc3_async::Shtc3;
 use super::EnvironmentData;
 
 pub struct EnvironmentSensors<T> {
-    i2c_sht: T,
-    i2c_ltr: T,
+    sht_sensor: Shtc3<T>,
+    ltr_sensor: Ltr303<T>,
 }
 
 impl<T, E> EnvironmentSensors<T>
@@ -18,18 +18,21 @@ where
     E: core::fmt::Debug,
 {
     pub fn new(i2c_sht: T, i2c_ltr: T) -> EnvironmentSensors<T> {
-        EnvironmentSensors { i2c_sht, i2c_ltr }
+        let sht_sensor = Shtc3::new(i2c_sht);
+        let ltr_sensor = Ltr303::new(i2c_ltr);
+        EnvironmentSensors {
+            sht_sensor,
+            ltr_sensor,
+        }
     }
 
-    pub async fn sample(self) -> EnvironmentData {
-        let mut sht_sensor = Shtc3::new(self.i2c_sht);
-        let mut ltr_sensor = Ltr303::new(self.i2c_ltr);
+    pub async fn sample(&mut self) -> EnvironmentData {
         let mut delay1 = Delay;
         let mut delay2 = Delay;
 
         let (result_sht, result_ltr) = join(
-            sht_sensor.sample(&mut delay1),
-            ltr_sensor.sample(&mut delay2),
+            self.sht_sensor.sample(&mut delay1),
+            self.ltr_sensor.sample(&mut delay2),
         )
         .await;
 
