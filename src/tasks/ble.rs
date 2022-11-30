@@ -12,7 +12,7 @@ use nrf_softdevice::ble::{gatt_server, peripheral, Connection, TxPower};
 use nrf_softdevice::{raw, Softdevice};
 use raw::{sd_power_dcdc_mode_set, NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE};
 
-use crate::app::{DataPacket, SensorData, SENSOR_DATA_BUS};
+use crate::app::{DataPacket, SENSOR_DATA_BUS};
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
@@ -85,7 +85,7 @@ async fn run_bluetooth(sd: &'static Softdevice, server: &Server) {
         );
         let conn_params = raw::ble_gap_conn_params_t {
             min_conn_interval: 100, // 1.25ms units
-            max_conn_interval: 400, // 1.25ms units
+            max_conn_interval: 200, // 1.25ms units
             slave_latency: 0,
             conn_sup_timeout: 400, // 4s
         };
