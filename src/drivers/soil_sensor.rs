@@ -77,8 +77,8 @@ where
     /// TODO: Unfortunately, I take ownership of self and never return it back. I am not experienced enough to fix this for now.
     pub async fn sample(&mut self) -> Result<ProbeData, ProbeError> {
         // Check if probe is connected. Return error if it is not.
-        self.check_connection()?;
-        info!("Probe detected! Enabling probe...");
+        // self.check_connection()?;
+        info!("Enabling probe...");
         self.enable_probe();
         embassy_time::Timer::after(Duration::from_millis(2)).await; // 2ms to settle the power regulator
 
@@ -125,7 +125,17 @@ where
         self.timer.stop();
         let cc = self.counter.cc(0).capture() as u64;
         let timer_val = self.timer.cc(0).capture() as u64;
-        let freq: u32 = ((cc * 1_000_000) / timer_val) as u32;
+        let freq: u32;
+        if timer_val != 0 {
+            freq = ((cc * 1_000_000) / timer_val) as u32;
+        } else {
+            freq = 0;
+        }
+        // See https://infocenter.nordicsemi.com/pdf/nRF52832_Rev_2_Errata_v1.7.pdf
+        // Errata No. 78
+        // Increased current consumption when the timer has been running and the STOP task is used to stop it.
+        self.timer.shutdown();
+        self.counter.shutdown();
 
         freq
     }

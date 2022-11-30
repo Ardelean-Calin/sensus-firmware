@@ -91,7 +91,6 @@ async fn run_bluetooth(sd: &'static Softdevice, server: &Server) {
         };
 
         conn.set_conn_params(conn_params).unwrap();
-        gatt_server::set_sys_attrs(&conn, None).unwrap();
 
         // Run the GATT server on the connection. This returns when the connection gets disconnected.
         let gatt_server_fut = gatt_server::run(&conn, server, |_e| {});
@@ -114,12 +113,12 @@ async fn run_bluetooth(sd: &'static Softdevice, server: &Server) {
 }
 
 #[embassy_executor::task]
-pub async fn ble_task(spawner: Spawner) {
+pub async fn ble_task() {
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
             source: raw::NRF_CLOCK_LF_SRC_RC as u8,
             rc_ctiv: 16,
-            rc_temp_ctiv: 2,
+            rc_temp_ctiv: 0,
             accuracy: raw::NRF_CLOCK_LF_ACCURACY_500_PPM as u8,
         }),
         conn_gap: Some(raw::ble_gap_conn_cfg_t {
@@ -148,10 +147,10 @@ pub async fn ble_task(spawner: Spawner) {
 
     let sd = Softdevice::enable(&config);
     // Enable DC/DC converter for the Softdevice.
-    unsafe {
-        let ret = sd_power_dcdc_mode_set(NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE as u8);
-        assert_eq!(ret, 0, "Error when enabling DC/DC converter: {}", ret);
-    }
+    // unsafe {
+    //     let ret = sd_power_dcdc_mode_set(NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE as u8);
+    //     assert_eq!(ret, 0, "Error when enabling DC/DC converter: {}", ret);
+    // }
 
     // Enable the softdevice.
     let server = unwrap!(Server::new(sd));

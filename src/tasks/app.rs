@@ -1,5 +1,3 @@
-use core::mem;
-
 use defmt::{info, unwrap, Format};
 use embassy_nrf::{
     self,
@@ -41,7 +39,7 @@ pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 
     PubSubChannel::new();
 
 // Constants
-const MEAS_INTERVAL: Duration = Duration::from_secs(3);
+const MEAS_INTERVAL: Duration = Duration::from_secs(5);
 
 // Data we get from main PCB:
 //  2 bytes for battery voltage  => u16; unit: mV
@@ -159,7 +157,8 @@ impl<'a> Hardware<'a> {
         i2c_irq: &'p mut interrupt::SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0,
     ) -> Self {
         // Soil enable pin used by soil probe sensor.
-        let sen = Output::new(&mut p.P0_06, Level::Low, OutputDrive::Standard);
+        let mut sen = Output::new(&mut p.P0_06, Level::Low, OutputDrive::Standard);
+        sen.set_low();
 
         // ADC initialization
         let mut config = saadc::Config::default();
