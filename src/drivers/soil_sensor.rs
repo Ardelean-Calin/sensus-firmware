@@ -77,7 +77,7 @@ where
     /// TODO: Unfortunately, I take ownership of self and never return it back. I am not experienced enough to fix this for now.
     pub async fn sample(&mut self) -> Result<ProbeData, ProbeError> {
         // Check if probe is connected. Return error if it is not.
-        // self.check_connection()?;
+        self.check_connection()?;
         info!("Enabling probe...");
         self.enable_probe();
         embassy_time::Timer::after(Duration::from_millis(2)).await; // 2ms to settle the power regulator
