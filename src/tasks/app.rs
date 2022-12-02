@@ -28,6 +28,10 @@ use environment::EnvironmentSensors;
 mod soil_sensor;
 use soil_sensor::SoilSensor;
 
+#[path = "../drivers/rgbled.rs"]
+mod rgbled;
+use rgbled::RGBLED;
+
 use ltr303_async::{self, LTR303Result};
 use shared_bus::{BusManager, NullMutex};
 use shtc3_async::{self, SHTC3Result};
@@ -38,8 +42,8 @@ use self::soil_sensor::ProbeData;
 pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 1> =
     PubSubChannel::new();
 
-// Constants
-const MEAS_INTERVAL: Duration = Duration::from_secs(5);
+// Constants TODO: configure different delay when release active.
+const MEAS_INTERVAL: Duration = Duration::from_secs(30);
 
 // Data we get from main PCB:
 //  2 bytes for battery voltage  => u16; unit: mV
@@ -266,6 +270,20 @@ pub async fn application_task(mut p: Peripherals) {
     let mut adc_irq = interrupt::take!(SAADC);
     let mut i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
     let data_publisher = unwrap!(SENSOR_DATA_BUS.publisher());
+
+    // let rgbled = RGBLED::new_rgb(&mut p.PWM0, &mut p.P0_22, &mut p.P0_23, &mut p.P0_24);
+
+    /** Ce trebuie sa se deinitializeze cand merg in sleep?
+     *  1) I2C bus-ul
+     *  2) HW timerele
+     *  3) ADC-ul
+     *
+     *  Ce nu trebuie sa se deinitializeze?
+     *  1) GPIO-ul ce detecteaza incarcarea.
+     */
+    // TODO: I want different behaviors...
+    //  if on battery => minimum power consumption.
+    //  if plugged in => some additional drivers
 
     // The application runs indefinitely.
     loop {
