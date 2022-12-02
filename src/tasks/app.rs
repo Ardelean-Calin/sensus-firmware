@@ -1,8 +1,8 @@
 use defmt::{info, unwrap, Format};
 use embassy_nrf::{
     self,
-    gpio::{Input, Level, Output, OutputDrive, Pull},
-    gpiote::InputChannel,
+    gpio::{Input, Level, Output, OutputDrive, Pin, Pull},
+    gpiote::{InputChannel, InputChannelPolarity},
     interrupt,
     peripherals::{GPIOTE_CH0, P0_06, P0_19, P0_20, PPI_CH0, TWISPI0},
     ppi::Ppi,
@@ -14,7 +14,10 @@ use embassy_nrf::{
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::pubsub::PubSubChannel;
 use embassy_time::{Duration, Instant, Timer};
-use futures::future::join3;
+use futures::{
+    future::{join, join3, select, Either},
+    pin_mut,
+};
 
 #[path = "../drivers/battery_sensor.rs"]
 mod battery_sensor;
@@ -270,6 +273,21 @@ pub async fn application_task(mut p: Peripherals) {
     let mut adc_irq = interrupt::take!(SAADC);
     let mut i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
     let data_publisher = unwrap!(SENSOR_DATA_BUS.publisher());
+
+    // join(sensors_task(sensors_peripherals), diagnostics_task(diagnosic_peripherals));
+
+    /**
+     * Cum ar fi sa separ task-urile in doua?
+     * 1) Sensors task => Aduna date de la senzori, deinitializeaza perifericele cand termina cu ele
+     * 2) Diagnostics task => Monitorizeaza diferite GPIO-uri, detecteaza daca incarcam, suntem plugged in, etc.
+     *  2.a) BONUS! Daca suntem plugged in, pot rula inca un task/coroutine, si anume SerialCommTask
+     *       Pot inclusiv face ceva de genul:
+     *          select(plugged_in.is_low().await, serialCommTask().await)
+     *       Astfel daca deconectez USB-C, ul, se distruge automat si serialCommTask
+     *  
+     *  NOTE: Nu ma pot baza pe intreruperi de GPIO, vad ca consuma prea mult curent. Va trebui sa am un task ciclic
+     *        ex. 100ms, care verifica nivelul GPIO-urilor, il stocheaza, si apoi merge inapoi la somn.
+     */
 
     // let rgbled = RGBLED::new_rgb(&mut p.PWM0, &mut p.P0_22, &mut p.P0_23, &mut p.P0_24);
 
