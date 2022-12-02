@@ -120,7 +120,7 @@ where
         self.counter.start();
         self.timer.start();
         // TODO: Replace with impl DelayUs
-        embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(10)).await;
         self.counter.stop();
         self.timer.stop();
         let cc = self.counter.cc(0).capture() as u64;

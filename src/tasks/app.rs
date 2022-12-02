@@ -1,9 +1,9 @@
-use defmt::{info, unwrap, Format};
+use defmt::{info, unwrap, warn, Format};
 use embassy_nrf::{
     self,
-    gpio::{Input, Level, Output, OutputDrive, Pin, Pull},
-    gpiote::{InputChannel, InputChannelPolarity},
-    interrupt,
+    gpio::{Input, Level, Output, OutputDrive, Pull},
+    gpiote::InputChannel,
+    interrupt::{self, SAADC, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0},
     peripherals::{GPIOTE_CH0, P0_06, P0_19, P0_20, PPI_CH0, TWISPI0},
     ppi::Ppi,
     saadc::{self, Saadc},
@@ -11,29 +11,23 @@ use embassy_nrf::{
     twim::{self, Twim},
     Peripherals,
 };
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::pubsub::PubSubChannel;
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::Publisher};
 use embassy_time::{Duration, Instant, Timer};
-use futures::{
-    future::{join, join3, select, Either},
-    pin_mut,
-};
 
 #[path = "../drivers/battery_sensor.rs"]
 mod battery_sensor;
-use battery_sensor::BatterySensor;
 
 #[path = "../drivers/environment.rs"]
 mod environment;
-use environment::EnvironmentSensors;
 
 #[path = "../drivers/soil_sensor.rs"]
 mod soil_sensor;
-use soil_sensor::SoilSensor;
 
 #[path = "../drivers/rgbled.rs"]
 mod rgbled;
-use rgbled::RGBLED;
+
+mod sensors;
 
 use ltr303_async::{self, LTR303Result};
 use shared_bus::{BusManager, NullMutex};
@@ -44,9 +38,6 @@ use self::soil_sensor::ProbeData;
 // Sensor data transmission channel. Queue of 4. 1 publisher, 3 subscribers
 pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 1> =
     PubSubChannel::new();
-
-// Constants TODO: configure different delay when release active.
-const MEAS_INTERVAL: Duration = Duration::from_secs(30);
 
 // Data we get from main PCB:
 //  2 bytes for battery voltage  => u16; unit: mV
@@ -141,7 +132,7 @@ impl Default for SensorData {
 
 // This struct shall contain all peripherals we use for data aquisition. Easy to track if something
 // changes.
-struct Hardware<'a> {
+pub struct Hardware<'a> {
     // One enable pin for external sensors (frequency + tmp112)
     enable_pin: Output<'a, P0_06>,
     // One I2C bus for SHTC3 and LTR303-ALS, as well as TMP112.
@@ -225,57 +216,196 @@ impl<'a> Hardware<'a> {
     }
 }
 
-struct Sensors {}
-impl Sensors {
-    fn new() -> Self {
-        Self {}
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Format)]
+enum Operation {
+    NONE = 0,
+    RUN_DIAGNOSTICS,
+    RUN_DATA_AQUISITION,
+    RUN_SERIAL_COMM,
+}
+
+#[derive(Debug, Clone)]
+struct SchedulerEntry {
+    scheduled_operation: Operation,
+    scheduled_time: Instant,
+    free: bool, // Indicates whether this entry can be populated.
+}
+
+impl SchedulerEntry {
+    fn new(op: Operation, time: Instant) -> Self {
+        SchedulerEntry {
+            scheduled_operation: op,
+            scheduled_time: time,
+            free: false,
+        }
     }
 
-    async fn sample<'a>(&'a self, hw: Hardware<'a>) -> DataPacket {
-        // Environement data: air temperature & humidity, ambient light.
-        let mut env_sensors =
-            EnvironmentSensors::new(hw.i2c_bus.acquire_i2c(), hw.i2c_bus.acquire_i2c());
-        // Probe data: soil moisture & temperature.
-        let mut probe_sensor = SoilSensor::new(
-            hw.freq_timer,
-            hw.freq_cnter,
-            hw.i2c_bus.acquire_i2c(),
-            hw.enable_pin,
-            hw.probe_detect,
-        );
-        // Battery voltage sensor. TODO could also be battery status
-        let mut batt_sensor = BatterySensor::new(hw.adc);
+    fn free(&mut self) {
+        self.scheduled_time = Instant::MAX;
+        self.free = true;
+    }
+}
 
-        // Sample everything at the same time to save processing time.
-        let (environment_data, probe_data, batt_mv) = join3(
-            env_sensors.sample(),
-            probe_sensor.sample(),
-            batt_sensor.sample_mv(),
-        )
-        .await;
-
-        // I could have some type of field representing invalid data. InvalidData<LastData>. This way, in case
-        // of an error I keep the last received value (or 0 if no value) and just wrap it inside InvalidData
-        // to mark it as being non-valid.
-        DataPacket {
-            battery_voltage: batt_mv,
-            env_data: environment_data,
-            probe_data: probe_data.unwrap_or_default(),
+impl Default for SchedulerEntry {
+    fn default() -> Self {
+        Self {
+            scheduled_time: Instant::MAX,
+            scheduled_operation: Operation::NONE,
+            free: true,
         }
-        // At the end, all our sensors are dropped since we own Hardware. So all peripherals found there
-        // get dropped. That includes i2c, gpio, etc.
+    }
+}
+
+struct PersistentData<'a> {
+    adc_irq: SAADC,
+    i2c_irq: SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0,
+    data_publisher: Publisher<'a, ThreadModeRawMutex, DataPacket, 4, 3, 1>,
+}
+impl<'a> PersistentData<'a> {
+    fn new() -> Self {
+        // Used interrupts; Need to be declared only once otherwise we get a core panic.
+        let adc_irq = interrupt::take!(SAADC);
+        let i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+        let data_publisher = unwrap!(SENSOR_DATA_BUS.publisher());
+
+        Self {
+            adc_irq,
+            i2c_irq,
+            data_publisher,
+        }
+    }
+}
+
+#[derive(Debug, Format)]
+enum SchedulerError {
+    TableFull = 0,
+}
+
+struct Scheduler {
+    p: Peripherals,
+    current_time: Instant,
+    table: [SchedulerEntry; 10],
+    persistent_data: PersistentData<'static>,
+}
+
+impl Scheduler {
+    fn new(p: Peripherals) -> Self {
+        let table: [SchedulerEntry; 10] = Default::default();
+        let current_time = Instant::now();
+
+        Scheduler {
+            p,
+            table,
+            current_time,
+            persistent_data: PersistentData::new(),
+        }
+    }
+
+    /**
+     * This function searches for the first free table entry and places an operation there.
+     *
+     * If no free entries are found, it means our table is full, so the scheduler reports and error.
+     */
+    fn schedule(&mut self, op: Operation, time: Instant) -> Result<(), SchedulerError> {
+        let mut found: bool = false;
+
+        for i in 0..self.table.len() {
+            let entry = &mut self.table[i];
+            if entry.free == true {
+                *entry = SchedulerEntry::new(op.clone(), time.clone());
+                found = true;
+                break;
+            }
+        }
+
+        if found == false {
+            Err(SchedulerError::TableFull)
+        } else {
+            Ok(())
+        }
+    }
+
+    /**
+     * This function runs the given operation.
+     *
+     * Also returns an error if we try to schedule an operation in the future but no space remains.
+     */
+    async fn run_operation(&mut self, op: &Operation) -> Result<(), SchedulerError> {
+        match op {
+            Operation::RUN_DIAGNOSTICS => {
+                self.schedule(
+                    Operation::RUN_DIAGNOSTICS,
+                    self.current_time + Duration::from_millis(100),
+                )?;
+                // info!("Diagnostics");
+            }
+            Operation::RUN_DATA_AQUISITION => {
+                self.schedule(
+                    Operation::RUN_DATA_AQUISITION,
+                    self.current_time + sensors::MEAS_INTERVAL,
+                )?;
+                info!("Data aquisition!");
+                let hw = Hardware::new(
+                    &mut self.p,
+                    &mut self.persistent_data.adc_irq,
+                    &mut self.persistent_data.i2c_irq,
+                );
+                let sensors = sensors::Sensors::new();
+                let sensor_data = sensors.sample(hw).await;
+                info!("{:?}", sensor_data);
+
+                // Publish the measured data.
+                self.persistent_data
+                    .data_publisher
+                    .publish_immediate(sensor_data);
+            }
+            Operation::RUN_SERIAL_COMM => {}
+            Operation::NONE => {
+                // do nothing
+            }
+        }
+
+        Ok(())
+    }
+
+    fn init_table(&mut self) {
+        self.table[0] = SchedulerEntry::new(Operation::RUN_DIAGNOSTICS, Instant::now());
+        self.table[1] = SchedulerEntry::new(Operation::RUN_DATA_AQUISITION, Instant::now());
+    }
+
+    async fn run(&mut self) -> Result<(), SchedulerError> {
+        info!("Running scheduler!");
+        loop {
+            let current_time = Instant::now();
+            self.current_time = current_time.clone();
+
+            for i in 0..self.table.len() {
+                let entry = self.table[i].clone();
+                // Since the table is sorted, I only need to do this until I find a time that doesn't belong here.
+                if entry.scheduled_time <= current_time {
+                    // info!("Should run operation");
+                    self.run_operation(&entry.scheduled_operation).await?;
+                    self.table[i].free();
+                }
+            }
+
+            // Calculate sleep time so as to run the loop every 100ms
+            let sleep_duration_option = Duration::from_millis(100)
+                .checked_sub(Instant::now().checked_duration_since(current_time).unwrap());
+
+            if let Some(sleep_duration) = sleep_duration_option {
+                Timer::after(sleep_duration).await;
+            } else {
+                warn!("A task took longer than a timeslot of the Scheduler.");
+            }
+        }
     }
 }
 
 #[embassy_executor::task]
-pub async fn application_task(mut p: Peripherals) {
-    // Used interrupts; Need to be declared only once otherwise we get a core panic.
-    let mut adc_irq = interrupt::take!(SAADC);
-    let mut i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-    let data_publisher = unwrap!(SENSOR_DATA_BUS.publisher());
-
-    // join(sensors_task(sensors_peripherals), diagnostics_task(diagnosic_peripherals));
-
+pub async fn application_task(p: Peripherals) {
+    #[allow(unused_doc_comments)]
     /**
      * Cum ar fi sa separ task-urile in doua?
      * 1) Sensors task => Aduna date de la senzori, deinitializeaza perifericele cand termina cu ele
@@ -291,37 +421,18 @@ pub async fn application_task(mut p: Peripherals) {
 
     // let rgbled = RGBLED::new_rgb(&mut p.PWM0, &mut p.P0_22, &mut p.P0_23, &mut p.P0_24);
 
-    /** Ce trebuie sa se deinitializeze cand merg in sleep?
-     *  1) I2C bus-ul
-     *  2) HW timerele
-     *  3) ADC-ul
-     *
-     *  Ce nu trebuie sa se deinitializeze?
-     *  1) GPIO-ul ce detecteaza incarcarea.
-     */
+    /// Ce trebuie sa se deinitializeze cand merg in sleep?
+    ///  *  1) I2C bus-ul
+    ///  *  2) HW timerele
+    ///  *  3) ADC-ul
+    ///  *
+    ///  *  Ce nu trebuie sa se deinitializeze?
+    ///  *  1) GPIO-ul ce detecteaza incarcarea.
     // TODO: I want different behaviors...
     //  if on battery => minimum power consumption.
     //  if plugged in => some additional drivers
-
-    // The application runs indefinitely.
-    loop {
-        let start_time = Instant::now();
-        // Used hardware will get dropped at the end of the loop. Thus guaranteeing low power consumption.
-        let used_hardware = Hardware::new(&mut p, &mut adc_irq, &mut i2c_irq);
-        // Hardware is given to sensors, which then lets it drop out of scope
-        let sensors = Sensors::new();
-        let sensor_data = sensors.sample(used_hardware).await;
-        info!("{:?}", sensor_data);
-
-        // Publish the measured data.
-        data_publisher.publish_immediate(sensor_data);
-
-        // I also have diagnostic data. Stuff like "is the battery connected? Is it charging?"
-        // let diag = Diagnostics::new();
-        // let diag_data = diag.get_diag_data(&mut p); // I should be able to use a mutable reference here, since hardware went out of scope.
-
-        // Wait 60s for the next measurement. TODO. Drop used_hardware before going to sleep. Either join or force drop.
-        let sleep_duration = MEAS_INTERVAL - (Instant::now() - start_time);
-        Timer::after(sleep_duration).await;
-    }
+    let mut scheduler = Scheduler::new(p);
+    scheduler.init_table();
+    // Should never return.
+    unwrap!(scheduler.run().await);
 }

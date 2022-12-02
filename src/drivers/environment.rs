@@ -36,7 +36,10 @@ where
         )
         .await;
 
-        let data = EnvironmentData::new(result_sht.unwrap(), result_ltr.unwrap());
+        let data = EnvironmentData::new(
+            result_sht.unwrap_or(Default::default()),
+            result_ltr.unwrap_or(Default::default()),
+        );
 
         data
     }
