@@ -1,15 +1,17 @@
+use core::mem;
+
 use defmt::{info, unwrap, warn, Format};
 use embassy_nrf::{
     self,
-    gpio::{Input, Level, Output, OutputDrive, Pull},
-    gpiote::InputChannel,
+    gpio::{Input, Level, Output, OutputDrive, Pin, Pull},
+    gpiote::{self, InputChannel},
     interrupt::{self, SAADC, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0},
-    peripherals::{GPIOTE_CH0, P0_06, P0_19, P0_20, PPI_CH0, TWISPI0},
-    ppi::Ppi,
+    peripherals::{self, GPIOTE_CH0, P0_06, P0_19, P0_20, PPI_CH0, TWISPI0},
+    ppi::{self, Ppi},
     saadc::{self, Saadc},
     timerv2::{self, CounterType, TimerType},
     twim::{self, Twim},
-    Peripherals,
+    Peripheral, Peripherals,
 };
 use embassy_sync::pubsub::PubSubChannel;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::Publisher};
@@ -27,16 +29,27 @@ mod soil_sensor;
 #[path = "../drivers/rgbled.rs"]
 mod rgbled;
 
-mod sensors;
+// mod sensors;
 
+use futures::{
+    future::{join, join3, select},
+    pin_mut,
+};
 use ltr303_async::{self, LTR303Result};
 use shared_bus::{BusManager, NullMutex};
 use shtc3_async::{self, SHTC3Result};
+
+use crate::app::{
+    battery_sensor::BatterySensor, environment::EnvironmentSensors, soil_sensor::SoilSensor,
+};
 
 use self::soil_sensor::ProbeData;
 
 // Sensor data transmission channel. Queue of 4. 1 publisher, 3 subscribers
 pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 1> =
+    PubSubChannel::new();
+
+pub static GPIO_MONITOR_BUS: PubSubChannel<ThreadModeRawMutex, PlantBuddyStatus, 4, 3, 1> =
     PubSubChannel::new();
 
 // Data we get from main PCB:
@@ -130,279 +143,6 @@ impl Default for SensorData {
     }
 }
 
-// This struct shall contain all peripherals we use for data aquisition. Easy to track if something
-// changes.
-pub struct Hardware<'a> {
-    // One enable pin for external sensors (frequency + tmp112)
-    enable_pin: Output<'a, P0_06>,
-    // One I2C bus for SHTC3 and LTR303-ALS, as well as TMP112.
-    i2c_bus: BusManager<NullMutex<Twim<'a, TWISPI0>>>,
-    // Two v2 timers for the frequency measurement as well as one PPI channel.
-    freq_cnter: timerv2::Timer<CounterType>,
-    freq_timer: timerv2::Timer<TimerType>,
-    probe_detect: Input<'a, P0_20>,
-    adc: Saadc<'a, 1>,
-    // Private variables. Why? Because they get dropped if I don't store them here.
-    _ppi_ch: Ppi<'a, PPI_CH0, 1, 1>,
-    _freq_in: InputChannel<'a, GPIOTE_CH0, P0_19>,
-}
-
-impl<'a> Hardware<'a> {
-    // Peripherals reference has a lifetime at least that of the hardware. Fixes "borrowed previous loop" errors.
-    fn new<'p: 'a>(
-        p: &'p mut Peripherals,
-        adc_irq: &'p mut interrupt::SAADC,
-        i2c_irq: &'p mut interrupt::SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0,
-    ) -> Self {
-        // Soil enable pin used by soil probe sensor.
-        let mut sen = Output::new(&mut p.P0_06, Level::Low, OutputDrive::Standard);
-        sen.set_low();
-
-        // ADC initialization
-        let mut config = saadc::Config::default();
-        config.oversample = saadc::Oversample::OVER64X;
-        let channel_cfg = saadc::ChannelConfig::single_ended(&mut p.P0_03);
-        let saadc = saadc::Saadc::new(&mut p.SAADC, adc_irq, config, [channel_cfg]);
-
-        // I2C initialization
-        let mut i2c_config = twim::Config::default();
-        i2c_config.frequency = twim::Frequency::K400; // 400k seems to be best for low power consumption.
-
-        let i2c_bus = Twim::new(
-            &mut p.TWISPI0,
-            i2c_irq,
-            &mut p.P0_14,
-            &mut p.P0_15,
-            i2c_config,
-        );
-        // Create a bus manager to be able to share i2c buses easily.
-        let i2c_bus = shared_bus::BusManagerSimple::new(i2c_bus);
-
-        // Counter + Timer initialization
-        let counter = timerv2::Timer::new(timerv2::TimerInstance::TIMER1)
-            .into_counter()
-            .with_bitmode(timerv2::Bitmode::B32);
-
-        let my_timer = timerv2::Timer::new(timerv2::TimerInstance::TIMER2)
-            .into_timer()
-            .with_bitmode(timerv2::Bitmode::B32)
-            .with_frequency(timerv2::Frequency::F1MHz);
-
-        let freq_in = InputChannel::new(
-            &mut p.GPIOTE_CH0,
-            Input::new(&mut p.P0_19, embassy_nrf::gpio::Pull::Up),
-            embassy_nrf::gpiote::InputChannelPolarity::HiToLo,
-        );
-
-        let mut ppi_ch =
-            Ppi::new_one_to_one(&mut p.PPI_CH0, freq_in.event_in(), counter.task_count());
-        ppi_ch.enable();
-
-        let probe_detect = Input::new(&mut p.P0_20, Pull::Up);
-
-        // Create new struct. If I don't store ppi_ch and freq_in inside the struct, they will get dropped from
-        // memory when I get here, causing Frequency Measurement to not work. Therefore I store them in private
-        // fields.
-        Self {
-            enable_pin: sen,
-            i2c_bus: i2c_bus,
-            freq_cnter: counter,
-            freq_timer: my_timer,
-            probe_detect: probe_detect,
-            adc: saadc,
-            _ppi_ch: ppi_ch,
-            _freq_in: freq_in,
-        }
-    }
-}
-
-#[allow(non_camel_case_types)]
-#[derive(Debug, Clone, Format)]
-enum Operation {
-    NONE = 0,
-    RUN_DIAGNOSTICS,
-    RUN_DATA_AQUISITION,
-    RUN_SERIAL_COMM,
-}
-
-#[derive(Debug, Clone)]
-struct SchedulerEntry {
-    scheduled_operation: Operation,
-    scheduled_time: Instant,
-    free: bool, // Indicates whether this entry can be populated.
-}
-
-impl SchedulerEntry {
-    fn new(op: Operation, time: Instant) -> Self {
-        SchedulerEntry {
-            scheduled_operation: op,
-            scheduled_time: time,
-            free: false,
-        }
-    }
-
-    fn free(&mut self) {
-        self.scheduled_time = Instant::MAX;
-        self.free = true;
-    }
-}
-
-impl Default for SchedulerEntry {
-    fn default() -> Self {
-        Self {
-            scheduled_time: Instant::MAX,
-            scheduled_operation: Operation::NONE,
-            free: true,
-        }
-    }
-}
-
-struct PersistentData<'a> {
-    adc_irq: SAADC,
-    i2c_irq: SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0,
-    data_publisher: Publisher<'a, ThreadModeRawMutex, DataPacket, 4, 3, 1>,
-}
-impl<'a> PersistentData<'a> {
-    fn new() -> Self {
-        // Used interrupts; Need to be declared only once otherwise we get a core panic.
-        let adc_irq = interrupt::take!(SAADC);
-        let i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-        let data_publisher = unwrap!(SENSOR_DATA_BUS.publisher());
-
-        Self {
-            adc_irq,
-            i2c_irq,
-            data_publisher,
-        }
-    }
-}
-
-#[derive(Debug, Format)]
-enum SchedulerError {
-    TableFull = 0,
-}
-
-struct Scheduler {
-    p: Peripherals,
-    current_time: Instant,
-    table: [SchedulerEntry; 10],
-    persistent_data: PersistentData<'static>,
-}
-
-impl Scheduler {
-    fn new(p: Peripherals) -> Self {
-        let table: [SchedulerEntry; 10] = Default::default();
-        let current_time = Instant::now();
-
-        Scheduler {
-            p,
-            table,
-            current_time,
-            persistent_data: PersistentData::new(),
-        }
-    }
-
-    /**
-     * This function searches for the first free table entry and places an operation there.
-     *
-     * If no free entries are found, it means our table is full, so the scheduler reports and error.
-     */
-    fn schedule(&mut self, op: Operation, time: Instant) -> Result<(), SchedulerError> {
-        let mut found: bool = false;
-
-        for i in 0..self.table.len() {
-            let entry = &mut self.table[i];
-            if entry.free == true {
-                *entry = SchedulerEntry::new(op.clone(), time.clone());
-                found = true;
-                break;
-            }
-        }
-
-        if found == false {
-            Err(SchedulerError::TableFull)
-        } else {
-            Ok(())
-        }
-    }
-
-    /**
-     * This function runs the given operation.
-     *
-     * Also returns an error if we try to schedule an operation in the future but no space remains.
-     */
-    async fn run_operation(&mut self, op: &Operation) -> Result<(), SchedulerError> {
-        match op {
-            Operation::RUN_DIAGNOSTICS => {
-                self.schedule(
-                    Operation::RUN_DIAGNOSTICS,
-                    self.current_time + Duration::from_millis(100),
-                )?;
-                // info!("Diagnostics");
-            }
-            Operation::RUN_DATA_AQUISITION => {
-                self.schedule(
-                    Operation::RUN_DATA_AQUISITION,
-                    self.current_time + sensors::MEAS_INTERVAL,
-                )?;
-                info!("Data aquisition!");
-                let hw = Hardware::new(
-                    &mut self.p,
-                    &mut self.persistent_data.adc_irq,
-                    &mut self.persistent_data.i2c_irq,
-                );
-                let sensors = sensors::Sensors::new();
-                let sensor_data = sensors.sample(hw).await;
-                info!("{:?}", sensor_data);
-
-                // Publish the measured data.
-                self.persistent_data
-                    .data_publisher
-                    .publish_immediate(sensor_data);
-            }
-            Operation::RUN_SERIAL_COMM => {}
-            Operation::NONE => {
-                // do nothing
-            }
-        }
-
-        Ok(())
-    }
-
-    fn init_table(&mut self) {
-        self.table[0] = SchedulerEntry::new(Operation::RUN_DIAGNOSTICS, Instant::now());
-        self.table[1] = SchedulerEntry::new(Operation::RUN_DATA_AQUISITION, Instant::now());
-    }
-
-    async fn run(&mut self) -> Result<(), SchedulerError> {
-        info!("Running scheduler!");
-        loop {
-            let current_time = Instant::now();
-            self.current_time = current_time.clone();
-
-            for i in 0..self.table.len() {
-                let entry = self.table[i].clone();
-                // Since the table is sorted, I only need to do this until I find a time that doesn't belong here.
-                if entry.scheduled_time <= current_time {
-                    // info!("Should run operation");
-                    self.run_operation(&entry.scheduled_operation).await?;
-                    self.table[i].free();
-                }
-            }
-
-            // Calculate sleep time so as to run the loop every 100ms
-            let sleep_duration_option = Duration::from_millis(100)
-                .checked_sub(Instant::now().checked_duration_since(current_time).unwrap());
-
-            if let Some(sleep_duration) = sleep_duration_option {
-                Timer::after(sleep_duration).await;
-            } else {
-                warn!("A task took longer than a timeslot of the Scheduler.");
-            }
-        }
-    }
-}
-
 #[embassy_executor::task]
 pub async fn application_task(p: Peripherals) {
     #[allow(unused_doc_comments)]
@@ -418,21 +158,168 @@ pub async fn application_task(p: Peripherals) {
      *  NOTE: Nu ma pot baza pe intreruperi de GPIO, vad ca consuma prea mult curent. Va trebui sa am un task ciclic
      *        ex. 100ms, care verifica nivelul GPIO-urilor, il stocheaza, si apoi merge inapoi la somn.
      */
-
     // let rgbled = RGBLED::new_rgb(&mut p.PWM0, &mut p.P0_22, &mut p.P0_23, &mut p.P0_24);
 
-    /// Ce trebuie sa se deinitializeze cand merg in sleep?
-    ///  *  1) I2C bus-ul
-    ///  *  2) HW timerele
-    ///  *  3) ADC-ul
-    ///  *
-    ///  *  Ce nu trebuie sa se deinitializeze?
-    ///  *  1) GPIO-ul ce detecteaza incarcarea.
-    // TODO: I want different behaviors...
-    //  if on battery => minimum power consumption.
-    //  if plugged in => some additional drivers
-    let mut scheduler = Scheduler::new(p);
-    scheduler.init_table();
-    // Should never return.
-    unwrap!(scheduler.run().await);
+    // Used interrupts:
+    let adc_irq = interrupt::take!(SAADC);
+    let i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+    #[allow(unused_doc_comments)]
+    /**
+     * Task-uri:
+     *  1) Adunare date -> ruleaza la fiecare 30-60s - CICLIC!
+     *  2) Trimitere date prin BLE -> automat atunci cand date noi sunt prezente
+     *  3) Receptionare date prin BLE -> nu e implementat inca
+     *  4) Monitorizare GPIO-uri -> ruleaza in paralel cu toate.
+     *  5) Trimitere date via Serial -> ruleaza doar daca suntem plugged in.
+     */
+    let gpio_monitor_fut = gpio_monitor_future(p.P0_31, p.P0_29);
+    pin_mut!(gpio_monitor_fut);
+    let sensor_data_fut = sensor_data_future::<TWISPI0, GPIOTE_CH0, PPI_CH0>(
+        p.P0_14,
+        p.P0_15,
+        p.P0_06,
+        p.P0_20,
+        p.P0_03,
+        p.P0_19,
+        p.SAADC,
+        p.TWISPI0,
+        p.GPIOTE_CH0,
+        p.PPI_CH0,
+        adc_irq,
+        i2c_irq,
+    );
+    pin_mut!(sensor_data_fut);
+
+    join(sensor_data_fut, gpio_monitor_fut).await;
+}
+
+async fn sensor_data_future<
+    I2C: twim::Instance,
+    GPIOTE: gpiote::Channel,
+    PPI: ppi::ConfigurableChannel,
+>(
+    mut pin_sda: impl Pin,
+    mut pin_scl: impl Pin,
+    mut pin_probe_en: impl Pin,
+    mut pin_probe_detect: impl Pin,
+    mut pin_adc: impl Peripheral<P = impl saadc::Input>,
+    mut pin_freq_in: impl Pin,
+    mut saadc: impl Peripheral<P = peripherals::SAADC>,
+    mut twim: impl Peripheral<P = peripherals::TWISPI0>,
+    mut gpiote_ch: impl Peripheral<P = GPIOTE>,
+    mut ppi_ch: impl Peripheral<P = PPI>,
+    mut adc_irq: impl Peripheral<P = interrupt::SAADC>,
+    mut i2c_irq: impl Peripheral<P = interrupt::SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0>,
+) {
+    loop {
+        // Soil enable pin used by soil probe sensor.
+        let mut probe_en = Output::new(&mut pin_probe_en, Level::Low, OutputDrive::Standard);
+        probe_en.set_low();
+
+        // ADC initialization
+        let mut config = saadc::Config::default();
+        config.oversample = saadc::Oversample::OVER64X;
+        let channel_cfg = saadc::ChannelConfig::single_ended(&mut pin_adc);
+        let saadc = saadc::Saadc::new(&mut saadc, &mut adc_irq, config, [channel_cfg]);
+
+        // I2C initialization
+        let mut i2c_config = twim::Config::default();
+        i2c_config.frequency = twim::Frequency::K400; // 400k seems to be best for low power consumption.
+
+        let i2c_bus = Twim::new(
+            &mut twim,
+            &mut i2c_irq,
+            &mut pin_sda,
+            &mut pin_scl,
+            i2c_config,
+        );
+        // Create a bus manager to be able to share i2c buses easily.
+        let i2c_bus = shared_bus::BusManagerSimple::new(i2c_bus);
+
+        // Counter + Timer initialization
+        let freq_cnter = timerv2::Timer::new(timerv2::TimerInstance::TIMER1)
+            .into_counter()
+            .with_bitmode(timerv2::Bitmode::B32);
+
+        let freq_timer = timerv2::Timer::new(timerv2::TimerInstance::TIMER2)
+            .into_timer()
+            .with_bitmode(timerv2::Bitmode::B32)
+            .with_frequency(timerv2::Frequency::F1MHz);
+
+        let freq_in = InputChannel::new(
+            &mut gpiote_ch,
+            Input::new(&mut pin_freq_in, embassy_nrf::gpio::Pull::Up),
+            embassy_nrf::gpiote::InputChannelPolarity::HiToLo,
+        );
+
+        let mut ppi_ch =
+            Ppi::new_one_to_one(&mut ppi_ch, freq_in.event_in(), freq_cnter.task_count());
+        ppi_ch.enable();
+
+        let probe_detect = Input::new(&mut pin_probe_detect, Pull::Up);
+
+        // Environement data: air temperature & humidity, ambient light.
+        let mut env_sensors = EnvironmentSensors::new(i2c_bus.acquire_i2c(), i2c_bus.acquire_i2c());
+        // Probe data: soil moisture & temperature.
+        let mut probe_sensor = SoilSensor::new(
+            freq_timer,
+            freq_cnter,
+            i2c_bus.acquire_i2c(),
+            probe_en,
+            probe_detect,
+        );
+        // Battery voltage sensor. TODO could also be battery status
+        let mut batt_sensor = BatterySensor::new(saadc);
+
+        // Sample everything at the same time to save processing time.
+        let (environment_data, probe_data, batt_mv) = join3(
+            env_sensors.sample(),
+            probe_sensor.sample(),
+            batt_sensor.sample_mv(),
+        )
+        .await;
+
+        let data_packet = DataPacket {
+            battery_voltage: batt_mv,
+            env_data: environment_data,
+            probe_data: probe_data.unwrap_or_default(),
+        };
+
+        info!("{:?}", data_packet);
+        let data_publisher = SENSOR_DATA_BUS.publisher().unwrap();
+        data_publisher.publish_immediate(data_packet);
+
+        Timer::after(Duration::from_millis(1000)).await;
+    }
+}
+
+#[derive(Default, Clone, Format)]
+pub struct PlantBuddyStatus {
+    plugged_in: Option<bool>,
+    charging: Option<bool>,
+}
+
+async fn gpio_monitor_future(mut plugged_in_pin: impl Pin, mut charging_pin: impl Pin) {
+    loop {
+        let plugged_in_input = Input::new(&mut plugged_in_pin, Pull::Up);
+        let charging_input = Input::new(&mut charging_pin, Pull::Up);
+        let charging: bool = charging_input.get_level().into();
+        let plugged_in: bool = plugged_in_input.get_level().into();
+        let pin_status = PlantBuddyStatus {
+            charging: Some(!charging),
+            plugged_in: Some(!plugged_in),
+        };
+        info!("{:?}", pin_status);
+
+        // Publish the new pin data. To be used by other tasks
+        let publisher = GPIO_MONITOR_BUS.publisher().unwrap();
+        publisher.publish_immediate(pin_status);
+
+        // Drop the peripherals to save power.
+        mem::drop(plugged_in_input);
+        mem::drop(charging_input);
+
+        // I can not use the wait_for_any_edge future since it seems to draw too much power. So I sleep instead.
+        Timer::after(Duration::from_millis(100)).await
+    }
 }
