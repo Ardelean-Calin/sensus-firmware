@@ -1,3 +1,4 @@
+use embassy_nrf::gpio::Pin;
 use embassy_time::Duration;
 use futures::future::join3;
 
@@ -15,7 +16,10 @@ impl Sensors {
         Self {}
     }
 
-    pub async fn sample<'a, 'b>(&'a self, hw: Hardware<'b>) -> DataPacket {
+    pub async fn sample<'a, 'b, P0: Pin, P1: Pin, P2: Pin>(
+        &'a self,
+        hw: Hardware<'b, P0, P1, P2>,
+    ) -> DataPacket {
         // Environement data: air temperature & humidity, ambient light.
         let mut env_sensors =
             EnvironmentSensors::new(hw.i2c_bus.acquire_i2c(), hw.i2c_bus.acquire_i2c());

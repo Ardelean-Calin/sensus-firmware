@@ -94,6 +94,7 @@ async fn main(spawner: Spawner) {
 
     // Peripherals config
     let p = embassy_nrf::init(config);
+
     spawner.must_spawn(app::application_task(p));
 
     // Should await forever.
