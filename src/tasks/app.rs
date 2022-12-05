@@ -1,20 +1,22 @@
 use core::{cell::RefCell, mem};
 
 use defmt::{info, unwrap, warn, Format};
+use embassy_executor::Spawner;
 use embassy_nrf::{
     self,
     gpio::{AnyPin, Input, Level, Output, OutputDrive, Pin, Pull},
     gpiote::{self, InputChannel},
     interrupt::{self, SAADC, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0},
-    peripherals::{self, GPIOTE_CH0, P0_06, P0_19, P0_20, PPI_CH0, TWISPI0},
+    peripherals::{self, GPIOTE_CH0, P0_06, P0_14, P0_15, P0_19, P0_20, PPI_CH0, TWISPI0},
     ppi::{self, Ppi},
+    pwm::SimplePwm,
     saadc::{self, Saadc},
     timerv2::{self, CounterType, TimerType},
     twim::{self, Twim},
-    Peripheral, Peripherals,
+    Peripheral, PeripheralRef, Peripherals,
 };
-use embassy_sync::pubsub::PubSubChannel;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::Publisher};
+use embassy_sync::{channel::Channel, pubsub::PubSubChannel};
 use embassy_time::{Duration, Instant, Timer};
 
 #[path = "../drivers/battery_sensor.rs"]
@@ -32,16 +34,12 @@ mod rgbled;
 mod sensors;
 
 use futures::{
-    future::{join, join3, select},
+    future::{join, select},
     pin_mut,
 };
 use ltr303_async::{self, LTR303Result};
 use shared_bus::{BusManager, NullMutex};
 use shtc3_async::{self, SHTC3Result};
-
-use crate::app::{
-    battery_sensor::BatterySensor, environment::EnvironmentSensors, soil_sensor::SoilSensor,
-};
 
 use self::soil_sensor::ProbeData;
 
@@ -49,8 +47,10 @@ use self::soil_sensor::ProbeData;
 pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 1> =
     PubSubChannel::new();
 
-pub static GPIO_MONITOR_BUS: PubSubChannel<ThreadModeRawMutex, PlantBuddyStatus, 4, 3, 1> =
-    PubSubChannel::new();
+#[cfg(debug_assertions)]
+static MEAS_INTERVAL: Duration = Duration::from_secs(3);
+#[cfg(not(debug_assertions))]
+static MEAS_INTERVAL: Duration = Duration::from_secs(30);
 
 // Data we get from main PCB:
 //  2 bytes for battery voltage  => u16; unit: mV
@@ -229,31 +229,29 @@ where
     }
 }
 
-/// Peripherals used by the diagnostic module.
-struct DiagPeripherals {
-    pin_charging: AnyPin,
-    pin_plugged: AnyPin,
-}
-impl DiagPeripherals {
-    fn new(pin_charging: AnyPin, pin_plugged: AnyPin) -> Self {
-        Self {
-            pin_charging,
-            pin_plugged,
-        }
-    }
-}
-
-/// Peripherals used by our I2C sensors.
-struct I2CPeriferals {
+struct LowPowerPeripherals {
     pin_sda: AnyPin,
     pin_scl: AnyPin,
-    twim: TWISPI0,
+    pin_probe_en: AnyPin,
+    pin_probe_detect: AnyPin,
+    pin_adc: saadc::AnyInput,
+    pin_freq_in: AnyPin,
+    saadc: peripherals::SAADC,
+    twim: peripherals::TWISPI0,
+    gpiote_ch: GPIOTE_CH0,
+    ppi_ch: PPI_CH0,
 }
 
-/// Peripherals used by our soil probe.
-struct ProbePeriferals {
-    pin_freqin: AnyPin,
-    pin_enable: AnyPin,
+struct RgbPins {
+    pin_red: AnyPin,
+    pin_green: AnyPin,
+    pin_blue: AnyPin,
+}
+struct HighPowerPeripherals {
+    pin_chg_detect: AnyPin,
+    pin_plug_detect: AnyPin,
+    pins_rgb: RgbPins,
+    pwm_rgb: peripherals::PWM0,
 }
 
 #[derive(Default, Clone, Format)]
@@ -262,95 +260,112 @@ pub struct PlantBuddyStatus {
     charging: Option<bool>,
 }
 
-#[embassy_executor::task]
-pub async fn application_task(p: Peripherals) {
-    // Let's have two tasks:
-    // 1) Sensor data gathering task.
-    // 2) Application State Machine.
-    // They will communicate via pubsub and mutexes.
-    // TODO: I should replace pin and peripheral groups with separate modules.
-    //       For example: all i2c pins and periphs should go inside an I2CSensorRequirements module.
-    //       Same for Probe, ADC, Control?
-    let sensors_fut = sensors_task(
-        p.P0_14,
-        p.P0_15,
-        p.P0_06,
-        p.P0_20, // TODO: Move to GPIO monitor
-        p.P0_03,
-        p.P0_19,
-        p.SAADC,
-        p.TWISPI0,
-        p.GPIOTE_CH0,
-        p.PPI_CH0,
-    );
-    let diag_peripherals = DiagPeripherals::new(p.P0_29.degrade(), p.P0_31.degrade());
-    let state_machine_fut = state_machine(diag_peripherals);
-    pin_mut!(sensors_fut);
-    pin_mut!(state_machine_fut);
-
-    join(sensors_fut, state_machine_fut).await;
-}
-
-async fn state_machine(mut diag_perifs: DiagPeripherals) {
+// async fn run_high_power(&mut pwm, &mut pin_red, &mut pin_green, &mut pin_blue, &mut charging_input) {
+async fn monitor_charging(
+    charging_detect: &mut Input<'_, impl Pin>,
+    pwm: &mut SimplePwm<'_, peripherals::PWM0>,
+) {
+    info!("This task runs only when plugged in!");
     loop {
-        let mut plugged_detect = Input::new(&mut diag_perifs.pin_plugged, Pull::Up);
-        let mut charging_detect = Input::new(&mut diag_perifs.pin_charging, Pull::Up);
-        let charging: bool = charging_detect.get_level().into();
-        let plugged_in: bool = plugged_detect.get_level().into();
-        let pin_status = PlantBuddyStatus {
-            charging: Some(!charging),
-            plugged_in: Some(!plugged_in),
-        };
-        info!("{:?}", pin_status);
-
-        // Publish the new pin data. To be used by other tasks
-        let publisher = GPIO_MONITOR_BUS.publisher().unwrap();
-        publisher.publish_immediate(pin_status);
-
-        // Wait for any changes asynchronoysly.
-        let plugged_fut = plugged_detect.wait_for_any_edge();
-        let charge_fut = charging_detect.wait_for_any_edge();
-        pin_mut!(plugged_fut);
-        pin_mut!(charge_fut);
-
-        select(plugged_fut, charge_fut).await;
+        if charging_detect.is_high() {
+            pwm.set_duty(0, 0);
+            pwm.set_duty(1, 255);
+            pwm.set_duty(2, 0);
+            charging_detect.wait_for_low().await;
+        } else {
+            // Set RGB to green. I could send a color via a channel.
+            pwm.set_duty(0, 0);
+            pwm.set_duty(1, 0);
+            pwm.set_duty(2, 255);
+            charging_detect.wait_for_high().await
+        }
     }
 }
 
-async fn sensors_task(
-    mut pin_sda: impl Pin,
-    mut pin_scl: impl Pin,
-    mut pin_probe_en: impl Pin,
-    mut pin_probe_detect: impl Pin,
-    mut pin_adc: impl Peripheral<P = impl saadc::Input>,
-    mut pin_freq_in: impl Pin,
-    mut saadc: impl Peripheral<P = peripherals::SAADC>,
-    mut twim: impl Peripheral<P = peripherals::TWISPI0>,
-    mut gpiote_ch: GPIOTE_CH0,
-    mut ppi_ch: PPI_CH0,
-) {
+async fn run_high_power(mut peripherals: HighPowerPeripherals) {
+    let mut plugged_detect = Input::new(peripherals.pin_plug_detect, Pull::Up);
+    let mut charging_detect = Input::new(peripherals.pin_chg_detect, Pull::Up);
+    loop {
+        // Wait for Plantbuddy to be plugged in.
+        plugged_detect.wait_for_low().await;
+        info!("Plantbuddy plugged in!");
+        let mut rgbled = SimplePwm::new_3ch(
+            &mut peripherals.pwm_rgb,
+            &mut peripherals.pins_rgb.pin_red,
+            &mut peripherals.pins_rgb.pin_green,
+            &mut peripherals.pins_rgb.pin_blue,
+        );
+        rgbled.set_max_duty(255);
+        // After plugged in, run the high-power coroutine
+        let while_plugged_fut = monitor_charging(&mut charging_detect, &mut rgbled);
+        pin_mut!(while_plugged_fut);
+        let plugged_out_fut = plugged_detect.wait_for_high();
+        pin_mut!(plugged_out_fut);
+
+        // This will run the high power task only while PB is plugged in. If it gets plugged out,
+        // the high power task gets dropped.
+        select(while_plugged_fut, plugged_out_fut).await;
+        info!("Dropped high power task!");
+    }
+}
+
+async fn run_low_power(mut peripherals: LowPowerPeripherals) {
     let mut adc_irq = interrupt::take!(SAADC);
     let mut i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
 
     loop {
         let hw = Hardware::new(
-            &mut pin_sda,
-            &mut pin_scl,
-            &mut pin_probe_en,
-            &mut pin_probe_detect,
-            &mut pin_adc,
-            &mut pin_freq_in,
-            &mut saadc,
-            &mut twim,
-            &mut gpiote_ch,
-            &mut ppi_ch,
+            &mut peripherals.pin_sda,
+            &mut peripherals.pin_scl,
+            &mut peripherals.pin_probe_en,
+            &mut peripherals.pin_probe_detect,
+            &mut peripherals.pin_adc,
+            &mut peripherals.pin_freq_in,
+            &mut peripherals.saadc,
+            &mut peripherals.twim,
+            &mut peripherals.gpiote_ch,
+            &mut peripherals.ppi_ch,
             &mut adc_irq,
             &mut i2c_irq,
         );
 
+        let start_time = Instant::now();
         let sensors = sensors::Sensors::new();
         let data_packet = sensors.sample(hw).await;
         info!("{:?}", data_packet);
-        Timer::after(Duration::from_millis(3000)).await;
+        Timer::after(MEAS_INTERVAL - start_time.elapsed()).await;
     }
+}
+
+#[embassy_executor::task]
+pub async fn application_task(mut p: Peripherals) {
+    let lp_peripherals = LowPowerPeripherals {
+        pin_sda: p.P0_14.degrade(),
+        pin_scl: p.P0_15.degrade(),
+        pin_probe_en: p.P0_06.degrade(),
+        pin_probe_detect: p.P0_20.degrade(),
+        pin_adc: p.P0_03.into(),
+        pin_freq_in: p.P0_19.degrade(),
+        saadc: p.SAADC,
+        twim: p.TWISPI0,
+        gpiote_ch: p.GPIOTE_CH0,
+        ppi_ch: p.PPI_CH0,
+    };
+    let low_power_fut = run_low_power(lp_peripherals);
+    pin_mut!(low_power_fut);
+
+    let hp_peripherals = HighPowerPeripherals {
+        pin_chg_detect: p.P0_29.degrade(),
+        pin_plug_detect: p.P0_31.degrade(),
+        pins_rgb: RgbPins {
+            pin_red: p.P0_22.degrade(),
+            pin_green: p.P0_23.degrade(),
+            pin_blue: p.P0_24.degrade(),
+        },
+        pwm_rgb: p.PWM0,
+    };
+    let high_power_fut = run_high_power(hp_peripherals);
+    pin_mut!(high_power_fut);
+
+    join(low_power_fut, high_power_fut).await;
 }

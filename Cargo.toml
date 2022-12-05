@@ -67,7 +67,7 @@ ltr303-async = { path = "ltr303-async", features = [
 shared-bus = { version = "0.2.4", features = ["cortex-m"] }
 tmp1x2 = "0.2.1"
 embedded-hal = "0.2.7"
-panic-reset = "0.1.1"
+panic-persist = { version = "0.3.0", features = ["min-panic"] }
 
 [patch.crates-io]
 nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }
@@ -95,7 +95,7 @@ opt-level = 0
 
 [profile.release]
 codegen-units = 1
-debug = 1
+debug = 2
 debug-assertions = false
 incremental = false
 lto = "fat"

@@ -1,6 +1,3 @@
-#[path = "../common.rs"]
-mod common;
-
 use defmt::{assert_eq, info, *};
 use futures::pin_mut;
 

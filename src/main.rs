@@ -5,10 +5,10 @@
 
 #[path = "tasks/app.rs"]
 mod app;
-mod error;
-mod prelude;
 
 mod ble;
+mod error;
+mod prelude;
 
 use embassy_executor::Spawner;
 use nrf52832_pac as pac;
