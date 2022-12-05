@@ -5,11 +5,10 @@
 
 #[path = "tasks/app.rs"]
 mod app;
+mod error;
+mod prelude;
 
 mod ble;
-
-#[path = "../common.rs"]
-mod common;
 
 use embassy_executor::Spawner;
 use nrf52832_pac as pac;
@@ -94,6 +93,11 @@ async fn main(spawner: Spawner) {
 
     // Peripherals config
     let p = embassy_nrf::init(config);
+
+    // #[cfg(not(debug_assertions))]
+    // if let Some(msg) = get_panic_message_bytes() {
+    //     board.uart.write(msg);
+    // }
 
     spawner.must_spawn(app::application_task(p));
 
