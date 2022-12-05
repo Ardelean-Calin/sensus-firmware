@@ -17,7 +17,7 @@ use embassy_nrf::{
 };
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::Publisher};
 use embassy_sync::{channel::Channel, pubsub::PubSubChannel};
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Instant, Ticker, Timer};
 
 #[path = "../drivers/battery_sensor.rs"]
 mod battery_sensor;
@@ -35,7 +35,7 @@ mod sensors;
 
 use futures::{
     future::{join, select},
-    pin_mut,
+    pin_mut, StreamExt,
 };
 use ltr303_async::{self, LTR303Result};
 use shared_bus::{BusManager, NullMutex};
@@ -312,6 +312,7 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
     let mut adc_irq = interrupt::take!(SAADC);
     let mut i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
 
+    let mut ticker = Ticker::every(MEAS_INTERVAL);
     loop {
         let hw = Hardware::new(
             &mut peripherals.pin_sda,
@@ -328,7 +329,6 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
             &mut i2c_irq,
         );
 
-        let start_time = Instant::now();
         let sensors = sensors::Sensors::new();
         let data_packet = sensors.sample(hw).await;
         info!("{:?}", data_packet);
@@ -336,7 +336,7 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
         let publisher = SENSOR_DATA_BUS.publisher().unwrap();
         publisher.publish_immediate(data_packet);
 
-        Timer::after(MEAS_INTERVAL - start_time.elapsed()).await;
+        ticker.next().await;
     }
 }
 
