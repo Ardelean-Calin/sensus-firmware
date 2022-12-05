@@ -75,8 +75,7 @@ pub struct SensorData {
     pub soil_moisture: u32,
 }
 
-#[derive(Format, Clone)]
-
+#[derive(Format, Clone, Default)]
 pub struct EnvironmentData {
     air_temperature: u16, // unit: 0.1K
     air_humidity: u16,    // unit: 0.1%
@@ -333,6 +332,10 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
         let sensors = sensors::Sensors::new();
         let data_packet = sensors.sample(hw).await;
         info!("{:?}", data_packet);
+
+        let publisher = SENSOR_DATA_BUS.publisher().unwrap();
+        publisher.publish_immediate(data_packet);
+
         Timer::after(MEAS_INTERVAL - start_time.elapsed()).await;
     }
 }

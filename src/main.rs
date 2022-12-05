@@ -96,6 +96,7 @@ async fn main(spawner: Spawner) {
 
     // #[cfg(not(debug_assertions))]
     // if let Some(msg) = get_panic_message_bytes() {
+    //    How about if I have some panic message, I turn on the red LED if plugged in?
     //     board.uart.write(msg);
     // }
 

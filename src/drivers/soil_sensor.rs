@@ -4,8 +4,13 @@ use embassy_nrf::{
     timerv2::{CounterType, Timer, TimerType},
 };
 use embassy_time::Duration;
+use embassy_time::Timer as SoftwareTimer;
 use embedded_hal::blocking::i2c::*;
 use tmp1x2::marker::mode::Continuous;
+
+/* Constants */
+static PROBE_STARTUP_TIME: Duration = Duration::from_millis(2);
+static TMP_MAX_CONV_TIME: Duration = Duration::from_millis(35);
 
 #[derive(Format, Clone, Default)]
 pub struct ProbeData {
@@ -80,13 +85,17 @@ where
         self.check_connection()?;
         info!("Enabling probe...");
         self.enable_probe();
-        embassy_time::Timer::after(Duration::from_millis(2)).await; // 2ms to settle the power regulator
+        SoftwareTimer::after(PROBE_STARTUP_TIME).await; // 2ms to settle the power regulator
 
-        // Split into two: sample the temperature & sample the moisture.
-        let freq = self.sample_soil_water().await;
-        let temp_milli_c = self.sample_soil_temp()?;
+        // Start measuring the soil water content. While this completes, we measure the temperature.
+        self.sample_soil_water_start();
+        let temp_milli_c = self.sample_soil_temperature().await?;
+        let freq = self.sample_soil_water_stop();
         self.disable_probe();
         info!("Disabled probe.");
+        // The whole measurement should have taken no more than 35ms.
+
+        info!("{:?}", temp_milli_c);
 
         let probe_data = ProbeData {
             soil_moisture: freq,
@@ -98,7 +107,10 @@ where
 
     /// Measure soil temperature via a Tmp112 sensor mounted on the probe.
     /// Returns the soil temperature in millidegrees C
-    fn sample_soil_temp(&mut self) -> Result<i32, ProbeError> {
+    /// NOTE: The maximum conversion time is 35ms
+    async fn sample_soil_temperature(&mut self) -> Result<i32, ProbeError> {
+        // Wait 35ms
+        SoftwareTimer::after(TMP_MAX_CONV_TIME).await;
         let soil_temp = self
             .tmp112_sensor
             .read_temperature()
@@ -109,18 +121,21 @@ where
         Ok(soil_temp)
     }
 
-    /// Measure soil moisture using a 555-timer astable oscillator.
-    async fn sample_soil_water(&self) -> u32 {
-        // How frequency measurement works:
-        // We bind the GPIO19 falling edge event to the counter's count up event.
-        // In parallel, we start a normal 1MHz timer.
-        // Then, after 100ms we get the value of CC in the counter, therefore giving us the number of events per 100ms
+    /// Starts a soil water content measurement. Since it takes 35ms for the temperature sensor to
+    /// provide the first sample, anyway, we can use that time to measure the soil water content.
+    fn sample_soil_water_start(&self) {
         self.counter.clear();
         self.timer.clear();
         self.counter.start();
         self.timer.start();
-        // TODO: Replace with impl DelayUs
-        embassy_time::Timer::after(embassy_time::Duration::from_millis(10)).await;
+    }
+
+    /// Measure soil moisture using a 555-timer astable oscillator.
+    fn sample_soil_water_stop(&self) -> u32 {
+        // How frequency measurement works:
+        // We bind the GPIO19 falling edge event to the counter's count up event.
+        // In parallel, we start a normal 1MHz timer.
+        // Then, after 35ms we get the value of CC in the counter, therefore giving us the number of events per 35ms
         self.counter.stop();
         self.timer.stop();
         let cc = self.counter.cc(0).capture() as u64;

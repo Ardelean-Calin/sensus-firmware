@@ -11,7 +11,7 @@ impl<'a> BatterySensor<'a> {
 
     pub async fn sample_mv(&mut self) -> u16 {
         let mut buf = [0i16; 1];
-        // self.saadc.calibrate().await;
+        self.saadc.calibrate().await;
         self.saadc.sample(&mut buf).await;
         let voltage: u32 = u32::from(buf[0].unsigned_abs()) * 200000 / 113778;
         voltage as u16

@@ -1,14 +1,10 @@
 use embassy_nrf::gpio::Pin;
-use embassy_time::Duration;
 use futures::future::join3;
 
 use super::{
     battery_sensor::BatterySensor, environment::EnvironmentSensors, soil_sensor::SoilSensor,
     DataPacket, Hardware,
 };
-
-// Constants TODO: configure different delay when release active.
-pub const MEAS_INTERVAL: Duration = Duration::from_secs(30);
 
 pub struct Sensors {}
 impl Sensors {
