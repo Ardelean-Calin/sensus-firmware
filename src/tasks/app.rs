@@ -188,7 +188,7 @@ where
 
         // I2C initialization
         let mut i2c_config = twim::Config::default();
-        i2c_config.frequency = twim::Frequency::K400; // 400k seems to be best for low power consumption.
+        i2c_config.frequency = twim::Frequency::K100; // 400k seems to be best for low power consumption.
 
         let i2c_bus = Twim::new(twim, i2c_irq, pin_sda, pin_scl, i2c_config);
         // Create a bus manager to be able to share i2c buses easily.
