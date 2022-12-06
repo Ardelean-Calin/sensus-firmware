@@ -68,6 +68,8 @@ shared-bus = { version = "0.2.4", features = ["cortex-m"] }
 tmp1x2 = "0.2.1"
 embedded-hal = "0.2.7"
 panic-persist = { version = "0.3.0", features = ["min-panic"] }
+serde = { version = "1.0.*", default-features = false }
+postcard = "1.0.2"
 
 [patch.crates-io]
 nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }
@@ -95,7 +97,7 @@ opt-level = 0
 
 [profile.release]
 codegen-units = 1
-debug = 2
+debug = 1
 debug-assertions = false
 incremental = false
 lto = "fat"

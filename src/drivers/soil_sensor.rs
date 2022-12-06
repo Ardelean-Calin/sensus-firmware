@@ -6,13 +6,14 @@ use embassy_nrf::{
 use embassy_time::Duration;
 use embassy_time::Timer as SoftwareTimer;
 use embedded_hal::blocking::i2c::*;
+use serde::{Deserialize, Serialize};
 use tmp1x2::marker::mode::Continuous;
 
 /* Constants */
 static PROBE_STARTUP_TIME: Duration = Duration::from_millis(2);
 static TMP_MAX_CONV_TIME: Duration = Duration::from_millis(35);
 
-#[derive(Format, Clone, Default)]
+#[derive(Format, Clone, Default, Serialize, Deserialize)]
 pub struct ProbeData {
     pub soil_temperature: u16, // unit: 0.1K
     pub soil_moisture: u32,    // unit: Hz
@@ -83,7 +84,7 @@ where
     pub async fn sample(&mut self) -> Result<ProbeData, ProbeError> {
         // Check if probe is connected. Return error if it is not.
         self.check_connection()?;
-        info!("Enabling probe...");
+        // info!("Enabling probe...");
         self.enable_probe();
         SoftwareTimer::after(PROBE_STARTUP_TIME).await; // 2ms to settle the power regulator
 
@@ -92,10 +93,8 @@ where
         let temp_milli_c = self.sample_soil_temperature().await?;
         let freq = self.sample_soil_water_stop();
         self.disable_probe();
-        info!("Disabled probe.");
+        // info!("Disabled probe.");
         // The whole measurement should have taken no more than 35ms.
-
-        info!("{:?}", temp_milli_c);
 
         let probe_data = ProbeData {
             soil_moisture: freq,

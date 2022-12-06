@@ -111,8 +111,8 @@ pub async fn run_ble_application(sd: &Softdevice, server: Server) {
 
     loop {
         let mut config = peripheral::Config::default();
-        // equivalent to 500ms
-        config.interval = 800;
+        // equivalent to 300ms
+        config.interval = 480;
         config.tx_power = TxPower::Plus4dBm;
 
         let adv = peripheral::ConnectableAdvertisement::ScannableUndirected {

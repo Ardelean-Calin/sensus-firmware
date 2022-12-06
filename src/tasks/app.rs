@@ -18,6 +18,7 @@ use embassy_nrf::{
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::Publisher};
 use embassy_sync::{channel::Channel, pubsub::PubSubChannel};
 use embassy_time::{Duration, Instant, Ticker, Timer};
+use serde::{Deserialize, Serialize};
 
 #[path = "../drivers/battery_sensor.rs"]
 mod battery_sensor;
@@ -28,10 +29,9 @@ mod environment;
 #[path = "../drivers/soil_sensor.rs"]
 mod soil_sensor;
 
-#[path = "../drivers/rgbled.rs"]
-mod rgbled;
-
 mod sensors;
+
+mod serial;
 
 use futures::{
     future::{join, select},
@@ -48,7 +48,7 @@ pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 
     PubSubChannel::new();
 
 #[cfg(debug_assertions)]
-static MEAS_INTERVAL: Duration = Duration::from_secs(3);
+static MEAS_INTERVAL: Duration = Duration::from_secs(3); // TODO: have a default val but change via BLE
 #[cfg(not(debug_assertions))]
 static MEAS_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -66,7 +66,7 @@ static MEAS_INTERVAL: Duration = Duration::from_secs(30);
 //     frequency to %.
 //  2) We can further "compress" the bytes. For example, temperature in Kelvin can be
 //     expressed with 9 bits. 0-512
-#[derive(Format, Clone)]
+#[derive(Format, Clone, Default)]
 pub struct SensorData {
     pub battery_voltage: u32,
     pub sht_data: shtc3_async::SHTC3Result,
@@ -75,7 +75,7 @@ pub struct SensorData {
     pub soil_moisture: u32,
 }
 
-#[derive(Format, Clone, Default)]
+#[derive(Format, Clone, Default, Serialize, Deserialize)]
 pub struct EnvironmentData {
     air_temperature: u16, // unit: 0.1K
     air_humidity: u16,    // unit: 0.1%
@@ -85,16 +85,15 @@ pub struct EnvironmentData {
 impl EnvironmentData {
     fn new(sht_data: SHTC3Result, ltr_data: LTR303Result) -> Self {
         EnvironmentData {
-            air_temperature: ((sht_data.temperature.as_millidegrees_celsius() + 273150) / 100)
+            air_temperature: ((sht_data.temperature.as_millidegrees_celsius() + 273150i32) / 100)
                 as u16,
-            air_humidity: (sht_data.humidity.as_millipercent() / 100) as u16,
+            air_humidity: (sht_data.humidity.as_millipercent() / 100u32) as u16,
             illuminance: ltr_data.lux,
         }
     }
 }
 
-// 14 bytes total.
-#[derive(Format, Clone)]
+#[derive(Format, Clone, Serialize, Deserialize)]
 pub struct DataPacket {
     pub battery_voltage: u16, // unit: mV
     pub env_data: EnvironmentData,
@@ -127,18 +126,6 @@ impl DataPacket {
         arr[13] = self.probe_data.soil_moisture.to_be_bytes()[3];
 
         arr
-    }
-}
-
-impl Default for SensorData {
-    fn default() -> Self {
-        Self {
-            battery_voltage: Default::default(),
-            sht_data: Default::default(),
-            ltr_data: Default::default(),
-            soil_temperature: Default::default(),
-            soil_moisture: Default::default(),
-        }
     }
 }
 
@@ -251,6 +238,9 @@ struct HighPowerPeripherals {
     pin_plug_detect: AnyPin,
     pins_rgb: RgbPins,
     pwm_rgb: peripherals::PWM0,
+    uart: peripherals::UARTE0,
+    pin_uart_tx: AnyPin,
+    pin_uart_rx: AnyPin,
 }
 
 #[derive(Default, Clone, Format)]
@@ -264,7 +254,7 @@ async fn monitor_charging(
     charging_detect: &mut Input<'_, impl Pin>,
     pwm: &mut SimplePwm<'_, peripherals::PWM0>,
 ) {
-    info!("This task runs only when plugged in!");
+    // info!("This task runs only when plugged in!");
     loop {
         if charging_detect.is_high() {
             pwm.set_duty(0, 0);
@@ -296,15 +286,23 @@ async fn run_high_power(mut peripherals: HighPowerPeripherals) {
         );
         rgbled.set_max_duty(255);
         // After plugged in, run the high-power coroutine
-        let while_plugged_fut = monitor_charging(&mut charging_detect, &mut rgbled);
-        pin_mut!(while_plugged_fut);
+        let charging_monitor_fut = monitor_charging(&mut charging_detect, &mut rgbled);
+        pin_mut!(charging_monitor_fut);
+        let serial_pusher_fut = serial::serial_pusher(
+            &mut peripherals.uart,
+            &mut peripherals.pin_uart_tx,
+            &mut peripherals.pin_uart_rx,
+        );
         let plugged_out_fut = plugged_detect.wait_for_high();
         pin_mut!(plugged_out_fut);
 
+        // Create a high power future. This one runs only when plugged in and only UNTIL plugged in.
+        let high_power_fut = join(charging_monitor_fut, serial_pusher_fut);
+        pin_mut!(high_power_fut);
+
         // This will run the high power task only while PB is plugged in. If it gets plugged out,
         // the high power task gets dropped.
-        select(while_plugged_fut, plugged_out_fut).await;
-        info!("Dropped high power task!");
+        select(high_power_fut, plugged_out_fut).await;
     }
 }
 
@@ -341,7 +339,7 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
 }
 
 #[embassy_executor::task]
-pub async fn application_task(mut p: Peripherals) {
+pub async fn application_task(p: Peripherals) {
     let lp_peripherals = LowPowerPeripherals {
         pin_sda: p.P0_14.degrade(),
         pin_scl: p.P0_15.degrade(),
@@ -366,9 +364,39 @@ pub async fn application_task(mut p: Peripherals) {
             pin_blue: p.P0_24.degrade(),
         },
         pwm_rgb: p.PWM0,
+        uart: p.UARTE0,
+        pin_uart_tx: p.P0_26.degrade(),
+        pin_uart_rx: p.P0_25.degrade(),
     };
     let high_power_fut = run_high_power(hp_peripherals);
     pin_mut!(high_power_fut);
 
     join(low_power_fut, high_power_fut).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_packet() {
+        let packet = DataPacket {
+            battery_voltage: 0xAABBu16,
+            env_data: super::EnvironmentData {
+                air_temperature: 2986,
+                air_humidity: 4545,
+                illuminance: 33,
+            },
+            probe_data: ProbeData {
+                soil_moisture: 1234567,
+                soil_temperature: 2981,
+            },
+        };
+
+        let encoded = packet.to_bytes_array();
+        assert_eq!(
+            encoded,
+            [0xBB, 0xAA, 0x0B, 0xAA, 0x11, 0xC1, 0x00, 0x21, 0x0B, 0xA5, 0x00, 0x12, 0xD6, 0x87]
+        );
+    }
 }
