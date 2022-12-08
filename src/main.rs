@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 #![feature(future_join)]
+#![feature(async_fn_in_trait)]
 
 #[path = "tasks/app.rs"]
 mod app;
@@ -10,7 +11,10 @@ mod ble;
 mod error;
 mod prelude;
 
+use embassy_boot_nrf::FirmwareUpdater;
+use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
+use embassy_nrf::nvmc::Nvmc;
 use nrf52832_pac as pac;
 
 // Reconfigure UICR to enable reset pin if required (resets if changed).
@@ -77,8 +81,20 @@ pub fn configure_nfc_pins_as_gpio() {
 async fn main(spawner: Spawner) {
     // Configure NFC pins as gpio.
     // configure_nfc_pins_as_gpio();
-    // Configure Pin 21 as reset pin (for now)
-    // configure_reset_pin();
+    // Configure Pin 21 as reset pin. Only this pin can be used according
+    // to datasheet.
+    configure_reset_pin();
+
+    // If we got here, it means that this application works. We indicate that to the bootloader.
+    // TODO: I can make this more complex and, for example, only mark OK if I got a BLE connection...
+    // As per tutorial, I need to make sure that:
+    // Your application is running correctly before marking itself as successfully booted.
+    // Doing this too early could cause your application to be stuck with the new faulty firmware.
+    // For IoT connected devices, there is an additional trick: make sure you can connect to
+    // the required services (such as the firmware update service) before marking the firmware
+    // as successfully booted.
+    // let mut updater = FirmwareUpdater::default();
+    // updater.mark_booted(&mut flash).await;
 
     // Main application task.
     let mut config = embassy_nrf::config::Config::default();
@@ -90,9 +106,13 @@ async fn main(spawner: Spawner) {
     config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
     config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
     config.lfclk_source = embassy_nrf::config::LfclkSource::InternalRC;
-    let p = embassy_nrf::init(config);
+    let mut p = embassy_nrf::init(config);
 
-    // Peripherals config
+    let nvmc = Nvmc::new(&mut p.NVMC);
+    let mut flash = BlockingAsync::new(nvmc);
+    let mut updater = FirmwareUpdater::default();
+    let mut magic = [0; 4];
+    updater.mark_booted(&mut flash, &mut magic).await;
 
     // Enable the softdevice.
     let (sd, server) = ble::configure_ble();

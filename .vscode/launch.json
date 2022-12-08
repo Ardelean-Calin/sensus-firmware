@@ -10,7 +10,7 @@
             "name": "probe-rs Debug",
             "cwd": "${workspaceFolder}",
             "connectUnderReset": true,
-            "chip": "STM32H745ZITx",
+            "chip": "nRF52832_xxAA",
             "preLaunchTask": "build-full-debug",
             "flashingConfig": {
                 "flashingEnabled": true,
