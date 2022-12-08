@@ -5,6 +5,26 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "probe-rs Debug",
+            "cwd": "${workspaceFolder}",
+            "connectUnderReset": true,
+            "chip": "STM32H745ZITx",
+            "preLaunchTask": "build-full-debug",
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "resetAfterFlashing": true,
+                "haltAfterReset": true
+            },
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "programBinary": "${workspaceFolder}/target/thumbv7em-none-eabihf/dev-full/plantbuddy-fw"
+                }
+            ]
+        },
+        {
             "cwd": "${workspaceRoot}",
             "executable": "./target/thumbv7em-none-eabihf/dev-full/plantbuddy-fw",
             "svdFile": "./nrf52.svd",
