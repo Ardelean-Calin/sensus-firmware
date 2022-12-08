@@ -1,7 +1,6 @@
 use core::{cell::RefCell, mem};
 
 use defmt::{info, unwrap, warn, Format};
-use embassy_executor::Spawner;
 use embassy_nrf::{
     self,
     gpio::{AnyPin, Input, Level, Output, OutputDrive, Pin, Pull},
@@ -18,6 +17,7 @@ use embassy_nrf::{
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::Publisher};
 use embassy_sync::{channel::Channel, pubsub::PubSubChannel};
 use embassy_time::{Duration, Instant, Ticker, Timer};
+use nrf52832_pac as pac;
 use serde::{Deserialize, Serialize};
 
 #[path = "../drivers/battery_sensor.rs"]
@@ -34,7 +34,7 @@ mod sensors;
 mod serial;
 
 use futures::{
-    future::{join, select},
+    future::{join, join3, select},
     pin_mut, StreamExt,
 };
 use ltr303_async::{self, LTR303Result};
@@ -338,6 +338,31 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
     }
 }
 
+async fn monitor_button(pin_btn: AnyPin) {
+    let mut btn = Input::new(pin_btn, Pull::None);
+    loop {
+        btn.wait_for_low().await;
+        info!("Starting countdown...");
+
+        let btn_release_fut = btn.wait_for_high();
+        pin_mut!(btn_release_fut);
+        match select(btn_release_fut, Timer::after(Duration::from_secs(3))).await {
+            futures::future::Either::Left(_) => {
+                // Button was released before timeout, do nothing.
+            }
+            futures::future::Either::Right(_) => {
+                info!("Resestting device.");
+                // We kept the button pressed for 3 seconds. Reset into bootloader mode.
+                // Only allowed on S112. Other softdevice might raise an Error!
+                let power_reg = unsafe { &*pac::POWER::ptr() };
+                power_reg.gpregret.write(|w| unsafe { w.bits(0xA8) });
+                cortex_m::peripheral::SCB::sys_reset();
+                info!("We shouldn't have gotten here...");
+            }
+        }
+    }
+}
+
 #[embassy_executor::task]
 pub async fn application_task(p: Peripherals) {
     let lp_peripherals = LowPowerPeripherals {
@@ -352,6 +377,7 @@ pub async fn application_task(p: Peripherals) {
         gpiote_ch: p.GPIOTE_CH0,
         ppi_ch: p.PPI_CH0,
     };
+    // TODO: Unless connected via GATT, we don't really need to run the sensor task.
     let low_power_fut = run_low_power(lp_peripherals);
     pin_mut!(low_power_fut);
 
@@ -371,7 +397,10 @@ pub async fn application_task(p: Peripherals) {
     let high_power_fut = run_high_power(hp_peripherals);
     pin_mut!(high_power_fut);
 
-    join(low_power_fut, high_power_fut).await;
+    let button_monitor_fut = monitor_button(p.P0_04.degrade());
+    pin_mut!(button_monitor_fut);
+
+    join3(low_power_fut, high_power_fut, button_monitor_fut).await;
 }
 
 #[cfg(test)]

@@ -78,21 +78,25 @@ async fn main(spawner: Spawner) {
     // Configure NFC pins as gpio.
     // configure_nfc_pins_as_gpio();
     // Configure Pin 21 as reset pin (for now)
-    configure_reset_pin();
+    // configure_reset_pin();
+
+    // Main application task.
+    let mut config = embassy_nrf::config::Config::default();
+    // NOTE: Do not enable Xtal. It is used by the S112. The SoftDevice powers the crystal
+    //       on only when it needs it in order to transmit something. Then turns it off.
+    //       If I enable it here, the crystal will always be on, drawing a significant
+    //       amount of power!
+    // config.hfclk_source = embassy_nrf::config::HfclkSource::ExternalXtal;
+    config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
+    config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
+    config.lfclk_source = embassy_nrf::config::LfclkSource::InternalRC;
+    let p = embassy_nrf::init(config);
+
+    // Peripherals config
 
     // Enable the softdevice.
     let (sd, server) = ble::configure_ble();
     spawner.must_spawn(ble::softdevice_task(sd));
-
-    // Main application task.
-    let mut config = embassy_nrf::config::Config::default();
-    config.hfclk_source = embassy_nrf::config::HfclkSource::ExternalXtal;
-    config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P7;
-    config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
-    config.lfclk_source = embassy_nrf::config::LfclkSource::InternalRC;
-
-    // Peripherals config
-    let p = embassy_nrf::init(config);
 
     // #[cfg(not(debug_assertions))]
     // if let Some(msg) = get_panic_message_bytes() {
@@ -103,5 +107,5 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(app::application_task(p));
 
     // Should await forever.
-    ble::run_ble_application(sd, server).await;
+    ble::run_ble_application(sd, &server).await;
 }

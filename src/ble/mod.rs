@@ -56,8 +56,8 @@ pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
             source: raw::NRF_CLOCK_LF_SRC_RC as u8,
-            rc_ctiv: 16,
-            rc_temp_ctiv: 0,
+            rc_ctiv: 16, // Note: shorturl.at/jlvHO
+            rc_temp_ctiv: 2,
             accuracy: raw::NRF_CLOCK_LF_ACCURACY_500_PPM as u8,
         }),
         conn_gap: Some(raw::ble_gap_conn_cfg_t {
@@ -66,7 +66,7 @@ pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
         }),
         conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 256 }),
         gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t {
-            attr_tab_size: raw::BLE_GATTS_ATTR_TAB_SIZE_DEFAULT.into(),
+            attr_tab_size: raw::BLE_GATTS_ATTR_TAB_SIZE_DEFAULT,
         }),
         gap_role_count: Some(raw::ble_gap_cfg_role_count_t {
             adv_set_count: raw::BLE_GAP_ADV_SET_COUNT_DEFAULT as u8,
@@ -96,7 +96,7 @@ pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
     (sd, server)
 }
 
-pub async fn run_ble_application(sd: &Softdevice, server: Server) {
+pub async fn run_ble_application(sd: &'static Softdevice, server: &Server) {
     #[rustfmt::skip]
     let adv_data = &[
         0x02, 0x01, raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8,
@@ -133,7 +133,7 @@ pub async fn run_ble_application(sd: &Softdevice, server: Server) {
         conn.set_conn_params(conn_params).unwrap();
 
         // Run the GATT server on the connection. This returns when the connection gets disconnected.
-        let gatt_server_fut = gatt_server::run(&conn, &server, |_e| {});
+        let gatt_server_fut = gatt_server::run(&conn, server, |_e| {});
         let gatt_update_fut = update_gatt(&server, &conn);
 
         pin_mut!(gatt_server_fut);
