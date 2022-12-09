@@ -51,15 +51,14 @@ async fn recv_packet(rx: &mut UarteRx<'_, UARTE0>) -> Result<CommPacket, UartErr
     Ok(packet)
 }
 
-pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, p_nvmc: &mut NVMC) {
+pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softdevice::Flash) {
     let mut page_buffer: Vec<u8, 4096> = Vec::new();
     let mut current_state = State::Idle;
     let mut no_of_pages = 0u8;
     let mut no_of_frames = 0u8;
     let mut page_offset = 0u32;
     // Firmware update related
-    let nvmc = Nvmc::new(p_nvmc);
-    let mut nvmc = BlockingAsync::new(nvmc);
+    // let mut nvmc = BlockingAsync::new(flash);
     let mut updater = FirmwareUpdater::default();
 
     loop {
@@ -171,7 +170,7 @@ pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, p_nvmc: &mut NVMC) {
                 page_buffer.resize(4096, 0x00u8).unwrap();
                 // Flashes the received page.
                 updater
-                    .write_firmware(page_offset as usize, &page_buffer, &mut nvmc, 4096)
+                    .write_firmware(page_offset as usize, &page_buffer, flash, 4096)
                     .await
                     .unwrap();
                 // Decrements the page number.
@@ -190,7 +189,7 @@ pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, p_nvmc: &mut NVMC) {
                 TX_PACKET_CHANNEL.send(packet).await;
                 // Mark the firmware as updated and reset!
                 let mut magic = [0; 4];
-                updater.mark_updated(&mut nvmc, &mut magic).await.unwrap();
+                updater.mark_updated(flash, &mut magic).await.unwrap();
                 cortex_m::peripheral::SCB::sys_reset();
             }
             State::StreamingData => {

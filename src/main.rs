@@ -124,7 +124,8 @@ async fn main(spawner: Spawner) {
     //     board.uart.write(msg);
     // }
 
-    spawner.must_spawn(app::application_task(p));
+    let flash = nrf_softdevice::Flash::take(sd);
+    spawner.must_spawn(app::application_task(p, flash));
 
     // Should await forever.
     ble::run_ble_application(sd, &server).await;

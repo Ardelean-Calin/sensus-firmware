@@ -51,7 +51,7 @@ pub async fn serial_task(
     instance: &mut peripherals::UARTE0,
     pin_tx: &mut AnyPin,
     pin_rx: &mut AnyPin,
-    nvmc: &mut embassy_nrf::peripherals::NVMC,
+    flash: &mut nrf_softdevice::Flash,
 ) {
     info!("UART task started!");
     // UART-related
@@ -64,7 +64,7 @@ pub async fn serial_task(
     let uart = uarte::Uarte::new(instance, uart_irq, pin_rx, pin_tx, config);
     let (tx, rx) = uart.split();
 
-    let rx_fut = rx_machine::rx_state_machine(rx, nvmc);
+    let rx_fut = rx_machine::rx_state_machine(rx, flash);
     let tx_fut = tx_machine::tx_state_machine(tx);
     pin_mut!(rx_fut);
     pin_mut!(tx_fut);

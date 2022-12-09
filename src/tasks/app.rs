@@ -20,6 +20,7 @@ use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::Publisher};
 use embassy_sync::{channel::Channel, pubsub::PubSubChannel};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use nrf52832_pac as pac;
+use nrf_softdevice::Flash;
 use serde::{Deserialize, Serialize};
 
 #[path = "../drivers/battery_sensor.rs"]
@@ -243,7 +244,7 @@ struct HighPowerPeripherals {
     uart: peripherals::UARTE0,
     pin_uart_tx: AnyPin,
     pin_uart_rx: AnyPin,
-    nvmc: embassy_nrf::peripherals::NVMC,
+    flash: nrf_softdevice::Flash,
 }
 
 #[derive(Default, Clone, Format)]
@@ -295,7 +296,7 @@ async fn run_high_power(mut peripherals: HighPowerPeripherals) {
             &mut peripherals.uart,
             &mut peripherals.pin_uart_tx,
             &mut peripherals.pin_uart_rx,
-            &mut peripherals.nvmc,
+            &mut peripherals.flash,
         );
         let plugged_out_fut = plugged_detect.wait_for_high();
         pin_mut!(plugged_out_fut);
@@ -333,12 +334,12 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
             &mut i2c_irq,
         );
 
-        let sensors = sensors::Sensors::new();
-        let data_packet = sensors.sample(hw).await;
-        info!("{:?}", data_packet);
+        // let sensors = sensors::Sensors::new();
+        // let data_packet = sensors.sample(hw).await;
+        // info!("{:?}", data_packet);
 
-        let publisher = SENSOR_DATA_BUS.publisher().unwrap();
-        publisher.publish_immediate(data_packet);
+        // let publisher = SENSOR_DATA_BUS.publisher().unwrap();
+        // publisher.publish_immediate(data_packet);
 
         ticker.next().await;
     }
@@ -370,7 +371,7 @@ async fn monitor_button(pin_btn: AnyPin) {
 }
 
 #[embassy_executor::task]
-pub async fn application_task(p: Peripherals) {
+pub async fn application_task(p: Peripherals, flash: Flash) {
     let lp_peripherals = LowPowerPeripherals {
         pin_sda: p.P0_14.degrade(),
         pin_scl: p.P0_15.degrade(),
@@ -399,7 +400,7 @@ pub async fn application_task(p: Peripherals) {
         uart: p.UARTE0,
         pin_uart_tx: p.P0_26.degrade(),
         pin_uart_rx: p.P0_25.degrade(),
-        nvmc: p.NVMC,
+        flash: flash,
     };
     let high_power_fut = run_high_power(hp_peripherals);
     pin_mut!(high_power_fut);
