@@ -1,11 +1,13 @@
 use core::{cell::RefCell, mem};
 
 use defmt::{info, unwrap, warn, Format};
+use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::{
     self,
     gpio::{AnyPin, Input, Level, Output, OutputDrive, Pin, Pull},
     gpiote::{self, InputChannel},
     interrupt::{self, SAADC, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0},
+    nvmc::Nvmc,
     peripherals::{self, GPIOTE_CH0, P0_06, P0_14, P0_15, P0_19, P0_20, PPI_CH0, TWISPI0},
     ppi::{self, Ppi},
     pwm::SimplePwm,
@@ -241,6 +243,7 @@ struct HighPowerPeripherals {
     uart: peripherals::UARTE0,
     pin_uart_tx: AnyPin,
     pin_uart_rx: AnyPin,
+    nvmc: embassy_nrf::peripherals::NVMC,
 }
 
 #[derive(Default, Clone, Format)]
@@ -288,16 +291,17 @@ async fn run_high_power(mut peripherals: HighPowerPeripherals) {
         // After plugged in, run the high-power coroutine
         let charging_monitor_fut = monitor_charging(&mut charging_detect, &mut rgbled);
         pin_mut!(charging_monitor_fut);
-        let serial_pusher_fut = serial::serial_pusher(
+        let usb_comm_fut = serial::serial_task(
             &mut peripherals.uart,
             &mut peripherals.pin_uart_tx,
             &mut peripherals.pin_uart_rx,
+            &mut peripherals.nvmc,
         );
         let plugged_out_fut = plugged_detect.wait_for_high();
         pin_mut!(plugged_out_fut);
 
         // Create a high power future. This one runs only when plugged in and only UNTIL plugged in.
-        let high_power_fut = join(charging_monitor_fut, serial_pusher_fut);
+        let high_power_fut = join(charging_monitor_fut, usb_comm_fut);
         pin_mut!(high_power_fut);
 
         // This will run the high power task only while PB is plugged in. If it gets plugged out,
@@ -308,7 +312,9 @@ async fn run_high_power(mut peripherals: HighPowerPeripherals) {
 
 async fn run_low_power(mut peripherals: LowPowerPeripherals) {
     let mut adc_irq = interrupt::take!(SAADC);
+    adc_irq.set_priority(interrupt::Priority::P7);
     let mut i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+    i2c_irq.set_priority(interrupt::Priority::P7);
 
     let mut ticker = Ticker::every(MEAS_INTERVAL);
     loop {
@@ -393,6 +399,7 @@ pub async fn application_task(p: Peripherals) {
         uart: p.UARTE0,
         pin_uart_tx: p.P0_26.degrade(),
         pin_uart_rx: p.P0_25.degrade(),
+        nvmc: p.NVMC,
     };
     let high_power_fut = run_high_power(hp_peripherals);
     pin_mut!(high_power_fut);
