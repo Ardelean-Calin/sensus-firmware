@@ -334,12 +334,12 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
             &mut i2c_irq,
         );
 
-        // let sensors = sensors::Sensors::new();
-        // let data_packet = sensors.sample(hw).await;
-        // info!("{:?}", data_packet);
+        let sensors = sensors::Sensors::new();
+        let data_packet = sensors.sample(hw).await;
+        info!("{:?}", data_packet);
 
-        // let publisher = SENSOR_DATA_BUS.publisher().unwrap();
-        // publisher.publish_immediate(data_packet);
+        let publisher = SENSOR_DATA_BUS.publisher().unwrap();
+        publisher.publish_immediate(data_packet);
 
         ticker.next().await;
     }
@@ -400,7 +400,7 @@ pub async fn application_task(p: Peripherals, flash: Flash) {
         uart: p.UARTE0,
         pin_uart_tx: p.P0_26.degrade(),
         pin_uart_rx: p.P0_25.degrade(),
-        flash: flash,
+        flash,
     };
     let high_power_fut = run_high_power(hp_peripherals);
     pin_mut!(high_power_fut);

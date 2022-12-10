@@ -43,12 +43,22 @@ async fn read_cobs_frame(rx: &mut UarteRx<'_, UARTE0>) -> Result<Vec<u8, 200>, U
     }
 }
 
+/// Waits for a COBS-encoded packet on UART and tries to transform it into a CommPacket.
 async fn recv_packet(rx: &mut UarteRx<'_, UARTE0>) -> Result<CommPacket, UartError> {
     let mut raw_data = read_cobs_frame(rx).await?;
     let rx_data = raw_data.deref_mut();
     let packet: CommPacket = from_bytes_cobs(rx_data).map_err(|_| UartError::DecodeError)?;
 
     Ok(packet)
+}
+
+/// Sends a COBS-encoded response over UART.
+async fn send_response(response: PacketID) {
+    let packet = CommPacket {
+        id: response,
+        data: Vec::new(),
+    };
+    TX_PACKET_CHANNEL.send(packet).await;
 }
 
 pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softdevice::Flash) {
@@ -74,11 +84,7 @@ pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softd
                         current_state = State::StreamingData;
                     }
                     PacketID::DFU_START => {
-                        let packet = CommPacket {
-                            id: PacketID::REQ_NO_PAGES,
-                            data: Vec::new(),
-                        };
-                        TX_PACKET_CHANNEL.send(packet).await;
+                        send_response(PacketID::REQ_NO_PAGES).await;
                         current_state = State::AwaitNoPages;
                         info!("Received DFU start. Wating number of pages.")
                     }
@@ -109,11 +115,7 @@ pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softd
                     current_state = State::DfuDone;
                 } else {
                     // Ask for the next page and the number of frames in said page.
-                    let packet = CommPacket {
-                        id: PacketID::REQ_NEXT_PAGE,
-                        data: Vec::new(),
-                    };
-                    TX_PACKET_CHANNEL.send(packet).await;
+                    send_response(PacketID::REQ_NEXT_PAGE).await;
                     current_state = State::AwaitNoFrames;
                 }
             }
@@ -135,11 +137,7 @@ pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softd
                     current_state = State::FlashPage;
                 } else {
                     // Request the next frame.
-                    let packet = CommPacket {
-                        id: PacketID::REQ_NEXT_FRAME,
-                        data: Vec::new(),
-                    };
-                    TX_PACKET_CHANNEL.send(packet).await;
+                    send_response(PacketID::REQ_NEXT_FRAME).await;
                     current_state = State::WaitFrame;
                 }
             }
@@ -157,11 +155,7 @@ pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softd
                         }
                     }
                     Err(_) => {
-                        let packet = CommPacket {
-                            id: PacketID::REQ_RETRY,
-                            data: Vec::new(),
-                        };
-                        TX_PACKET_CHANNEL.send(packet).await;
+                        send_response(PacketID::REQ_RETRY).await;
                         info!("Packet receive error. Retrying...");
                     }
                 }
@@ -182,11 +176,7 @@ pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softd
             }
             State::DfuDone => {
                 info!("DFU Done! Resetting...");
-                let packet = CommPacket {
-                    id: PacketID::DFU_DONE,
-                    data: Vec::new(),
-                };
-                TX_PACKET_CHANNEL.send(packet).await;
+                send_response(PacketID::DFU_DONE).await;
                 // Mark the firmware as updated and reset!
                 let mut magic = [0; 4];
                 updater.mark_updated(flash, &mut magic).await.unwrap();
