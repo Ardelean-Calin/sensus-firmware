@@ -108,11 +108,11 @@ async fn main(spawner: Spawner) {
     config.lfclk_source = embassy_nrf::config::LfclkSource::InternalRC;
     let mut p = embassy_nrf::init(config);
 
-    let nvmc = Nvmc::new(&mut p.NVMC);
-    let mut flash = BlockingAsync::new(nvmc);
-    let mut updater = FirmwareUpdater::default();
-    let mut magic = [0; 4];
-    updater.mark_booted(&mut flash, &mut magic).await;
+    // let nvmc = Nvmc::new(&mut p.NVMC);
+    // let mut flash = BlockingAsync::new(nvmc);
+    // let mut updater = FirmwareUpdater::default();
+    // let mut magic = [0; 4];
+    // updater.mark_booted(&mut flash, &mut magic).await;
 
     // Enable the softdevice.
     let (sd, server) = ble::configure_ble();

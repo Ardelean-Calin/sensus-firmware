@@ -13,7 +13,6 @@ use postcard::from_bytes_cobs;
 
 use super::{CommPacket, PacketID, UartError, TX_PACKET_CHANNEL};
 
-#[derive(Format)]
 enum State {
     Idle,
     StreamingData,
@@ -45,11 +44,16 @@ async fn read_cobs_frame(rx: &mut UarteRx<'_, UARTE0>) -> Result<Vec<u8, 200>, U
 
 /// Waits for a COBS-encoded packet on UART and tries to transform it into a CommPacket.
 async fn recv_packet(rx: &mut UarteRx<'_, UARTE0>) -> Result<CommPacket, UartError> {
-    let mut raw_data = read_cobs_frame(rx).await?;
-    let rx_data = raw_data.deref_mut();
-    let packet: CommPacket = from_bytes_cobs(rx_data).map_err(|_| UartError::DecodeError)?;
-
-    Ok(packet)
+    loop {
+        let mut raw_data = read_cobs_frame(rx).await?;
+        let rx_data = raw_data.deref_mut();
+        match from_bytes_cobs(rx_data).map_err(|_| UartError::DecodeError) {
+            Ok(packet) => return Ok(packet),
+            Err(_) => {
+                send_response(PacketID::REQ_RETRY).await;
+            }
+        }
+    }
 }
 
 /// Sends a COBS-encoded response over UART.
@@ -68,11 +72,10 @@ pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softd
     let mut no_of_frames = 0u8;
     let mut page_offset = 0u32;
     // Firmware update related
-    // let mut nvmc = BlockingAsync::new(flash);
     let mut updater = FirmwareUpdater::default();
 
+    // TODO: Lots of problems with this state machine...I am not handling errors properly, for once.
     loop {
-        // info!("DFU Current State: {:?}", current_state);
         match current_state {
             State::Idle => {
                 // Wait for a packet
@@ -142,22 +145,15 @@ pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softd
                 }
             }
             State::WaitFrame => {
-                match recv_packet(&mut rx).await {
-                    Ok(packet) => {
-                        if let PacketID::DFU_FRAME = packet.id {
-                            // Store the received frame in the data vector.
-                            page_buffer.extend(packet.data);
+                let packet = recv_packet(&mut rx).await.unwrap();
+                if let PacketID::DFU_FRAME = packet.id {
+                    // Store the received frame in the data vector.
+                    page_buffer.extend(packet.data);
 
-                            no_of_frames -= 1;
-                            current_state = State::NextFrame;
-                        } else {
-                            panic!("Invalid packet ID: {:?}", packet.id);
-                        }
-                    }
-                    Err(_) => {
-                        send_response(PacketID::REQ_RETRY).await;
-                        info!("Packet receive error. Retrying...");
-                    }
+                    no_of_frames -= 1;
+                    current_state = State::NextFrame;
+                } else {
+                    panic!("Invalid packet ID: {:?}", packet.id);
                 }
             }
             State::FlashPage => {

@@ -15,7 +15,7 @@ static TMP_MAX_CONV_TIME: Duration = Duration::from_millis(35);
 
 #[derive(Format, Clone, Default, Serialize, Deserialize)]
 pub struct ProbeData {
-    pub soil_temperature: u16, // unit: 0.1K
+    pub soil_temperature: i16, // unit: 0.01C
     pub soil_moisture: u32,    // unit: Hz
 }
 
@@ -98,7 +98,7 @@ where
 
         let probe_data = ProbeData {
             soil_moisture: freq,
-            soil_temperature: ((temp_milli_c + 273150) / 100) as u16,
+            soil_temperature: temp_milli_c as i16,
         };
 
         Ok(probe_data)

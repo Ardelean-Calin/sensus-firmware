@@ -1,3 +1,5 @@
+use core::default;
+
 use defmt::info;
 use defmt::Format;
 use embassy_nrf::gpio::AnyPin;
@@ -16,9 +18,10 @@ mod rx_machine;
 mod tx_machine;
 
 #[allow(non_camel_case_types)]
-#[derive(Format, Serialize, Deserialize, Clone, Debug)]
+#[derive(Format, Serialize, Deserialize, Clone, Debug, Default)]
 enum PacketID {
-    STREAM_START = 0x31,   // Starts data streaming via UART
+    #[default]
+    STREAM_START = 0x31, // Starts data streaming via UART
     STREAM_STOP = 0x32,    // Stops data streaming via UART
     DFU_START = 0x33,      // Represents the start of a dfu operation
     REQ_NO_PAGES = 0x34,   // Represents a request for the number of pages
@@ -32,7 +35,7 @@ enum PacketID {
     ERROR = 0xFF,         // Represents an error
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 struct CommPacket {
     id: PacketID,
     data: heapless::Vec<u8, 128>,

@@ -80,19 +80,30 @@ pub struct SensorData {
 
 #[derive(Format, Clone, Default, Serialize, Deserialize)]
 pub struct EnvironmentData {
-    air_temperature: u16, // unit: 0.1K
-    air_humidity: u16,    // unit: 0.1%
+    air_temperature: i16, // unit: 0.01C
+    air_humidity: u16,    // unit: 0.01%
     illuminance: u16,     // unit: Lux
 }
 
 impl EnvironmentData {
     fn new(sht_data: SHTC3Result, ltr_data: LTR303Result) -> Self {
         EnvironmentData {
-            air_temperature: ((sht_data.temperature.as_millidegrees_celsius() + 273150i32) / 100)
-                as u16,
-            air_humidity: (sht_data.humidity.as_millipercent() / 100u32) as u16,
+            air_temperature: (sht_data.temperature.as_millidegrees_celsius() as i16),
+            air_humidity: (sht_data.humidity.as_millipercent() as u16),
             illuminance: ltr_data.lux,
         }
+    }
+
+    pub fn get_air_temp(&self) -> i16 {
+        self.air_temperature / 10
+    }
+
+    pub fn get_air_humidity(&self) -> u16 {
+        self.air_humidity / 10
+    }
+
+    pub fn get_illuminance(&self) -> u16 {
+        self.illuminance
     }
 }
 
@@ -336,7 +347,7 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
 
         let sensors = sensors::Sensors::new();
         let data_packet = sensors.sample(hw).await;
-        info!("{:?}", data_packet);
+        // info!("{:?}", data_packet);
 
         let publisher = SENSOR_DATA_BUS.publisher().unwrap();
         publisher.publish_immediate(data_packet);
