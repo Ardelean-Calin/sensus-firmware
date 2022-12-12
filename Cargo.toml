@@ -7,7 +7,7 @@ edition = "2021"
 
 
 [features]
-default = ["ble-gatt-server", "ble-sec", "nrf52832"]
+default = ["ble-gatt-server", "ble-sec", "nrf52832", "ble-l2cap"]
 
 ble-l2cap = ["nrf-softdevice/ble-l2cap"]
 ble-gatt-server = ["nrf-softdevice/ble-gatt-server"]
@@ -46,12 +46,13 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 nrf-softdevice = { version = "0.1.0", features = [
     "defmt",
     "nrf52832",
-    "s112",
+    "s132",
     "ble-peripheral",
+    "ble-l2cap",
     "critical-section-impl",
     "ble-gatt-server",
 ] }
-nrf-softdevice-s112 = { version = "0.1.1" }
+nrf-softdevice-s132 = { version = "0.1.1" }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.3.0"
 futures = { version = "0.3.5", default-features = false }
@@ -74,7 +75,7 @@ postcard = "1.0.2"
 
 [patch.crates-io]
 nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }
-nrf-softdevice-s112 = { path = "nrf-softdevice/nrf-softdevice-s112" }
+nrf-softdevice-s132 = { path = "nrf-softdevice/nrf-softdevice-s132" }
 embassy-time = { path = "embassy/embassy-time" }
 embassy-sync = { path = "embassy/embassy-sync" }
 embassy-executor = { path = "embassy/embassy-executor" }
