@@ -11,11 +11,19 @@ mod ble;
 mod error;
 mod prelude;
 
+mod custom_executor;
+
+use cortex_m_rt::entry;
+use defmt::info;
 use embassy_boot_nrf::FirmwareUpdater;
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_nrf::nvmc::Nvmc;
 use nrf52832_pac as pac;
+use static_cell::StaticCell;
+
+/// I need to create a custom executor to patch some very specific hardware bugs found on nRF52832.
+static EXECUTOR: StaticCell<custom_executor::Executor> = StaticCell::new();
 
 // Reconfigure UICR to enable reset pin if required (resets if changed).
 pub fn configure_reset_pin() {
@@ -77,8 +85,9 @@ pub fn configure_nfc_pins_as_gpio() {
     }
 }
 
-#[embassy_executor::main]
-async fn main(spawner: Spawner) {
+#[embassy_executor::task]
+async fn main_task() {
+    let spawner = Spawner::for_current_executor().await;
     // Configure NFC pins as gpio.
     // configure_nfc_pins_as_gpio();
     // Configure Pin 21 as reset pin. Only this pin can be used according
@@ -107,26 +116,34 @@ async fn main(spawner: Spawner) {
     config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
     config.lfclk_source = embassy_nrf::config::LfclkSource::InternalRC;
     let mut p = embassy_nrf::init(config);
-
-    // let nvmc = Nvmc::new(&mut p.NVMC);
-    // let mut flash = BlockingAsync::new(nvmc);
-    // let mut updater = FirmwareUpdater::default();
-    // let mut magic = [0; 4];
-    // updater.mark_booted(&mut flash, &mut magic).await;
+    let nvmc = Nvmc::new(&mut p.NVMC);
+    let mut flash = BlockingAsync::new(nvmc);
+    let mut updater = FirmwareUpdater::default();
+    let mut magic = [0; 4];
+    updater.mark_booted(&mut flash, &mut magic).await;
 
     // Enable the softdevice.
     let (sd, server) = ble::configure_ble();
     spawner.must_spawn(ble::softdevice_task(sd));
+    // disable_mwu();
 
-    // #[cfg(not(debug_assertions))]
-    // if let Some(msg) = get_panic_message_bytes() {
-    //    How about if I have some panic message, I turn on the red LED if plugged in?
-    //     board.uart.write(msg);
-    // }
+    // // #[cfg(not(debug_assertions))]
+    // // if let Some(msg) = get_panic_message_bytes() {
+    // //    How about if I have some panic message, I turn on the red LED if plugged in?
+    // //     board.uart.write(msg);
+    // // }
 
     let flash = nrf_softdevice::Flash::take(sd);
     spawner.must_spawn(app::application_task(p, flash));
 
     // Should await forever.
     ble::run_ble_application(sd, &server).await;
+}
+
+#[entry]
+fn main() -> ! {
+    info!("Booted successfully!");
+
+    let executor = EXECUTOR.init(custom_executor::Executor::new());
+    executor.run(|spawner| spawner.must_spawn(main_task()));
 }
