@@ -102,8 +102,8 @@ pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
 
 async fn run_gatt_server<'a>(sd: &'static Softdevice, server: &'a Server, adv_data: &'a [u8]) {
     let mut config = peripheral::Config::default();
-    // equivalent to 300ms
-    config.interval = 480;
+    // equivalent to 1000ms
+    config.interval = 1600;
     config.tx_power = TxPower::Plus4dBm;
 
     let adv = peripheral::ConnectableAdvertisement::ExtendedNonscannableUndirected {
