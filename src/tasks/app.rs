@@ -78,35 +78,6 @@ pub struct SensorData {
     pub soil_moisture: u32,
 }
 
-#[derive(Format, Clone, Default, Serialize, Deserialize)]
-pub struct EnvironmentData {
-    air_temperature: i16, // unit: 0.01C
-    air_humidity: u16,    // unit: 0.01%
-    illuminance: u16,     // unit: Lux
-}
-
-impl EnvironmentData {
-    fn new(sht_data: SHTC3Result, ltr_data: LTR303Result) -> Self {
-        EnvironmentData {
-            air_temperature: ((sht_data.temperature.as_millidegrees_celsius() / 10i32) as i16),
-            air_humidity: ((sht_data.humidity.as_millipercent() / 10u32) as u16),
-            illuminance: ltr_data.lux,
-        }
-    }
-
-    pub fn get_air_temp(&self) -> i16 {
-        self.air_temperature
-    }
-
-    pub fn get_air_humidity(&self) -> u16 {
-        self.air_humidity
-    }
-
-    pub fn get_illuminance(&self) -> u16 {
-        self.illuminance
-    }
-}
-
 struct LowPowerPeripherals {
     pin_sda: AnyPin,
     pin_scl: AnyPin,
@@ -145,7 +116,7 @@ pub struct PlantBuddyStatus {
 #[derive(Format, Clone, Serialize, Deserialize)]
 pub struct DataPacket {
     pub battery_voltage: u16, // unit: mV
-    pub env_data: EnvironmentData,
+    pub env_data: environment::EnvironmentData,
     pub probe_data: ProbeData,
 }
 
@@ -156,14 +127,14 @@ impl DataPacket {
         arr[0] = self.battery_voltage.to_be_bytes()[0];
         arr[1] = self.battery_voltage.to_be_bytes()[1];
         // Encode air temperature
-        arr[2] = self.env_data.air_temperature.to_be_bytes()[0];
-        arr[3] = self.env_data.air_temperature.to_be_bytes()[1];
+        arr[2] = self.env_data.get_air_temp().to_be_bytes()[0];
+        arr[3] = self.env_data.get_air_temp().to_be_bytes()[1];
         // Encode air humidity
-        arr[4] = self.env_data.air_humidity.to_be_bytes()[0];
-        arr[5] = self.env_data.air_humidity.to_be_bytes()[1];
+        arr[4] = self.env_data.get_air_humidity().to_be_bytes()[0];
+        arr[5] = self.env_data.get_air_humidity().to_be_bytes()[1];
         // Encode solar illuminance
-        arr[6] = self.env_data.illuminance.to_be_bytes()[0];
-        arr[7] = self.env_data.illuminance.to_be_bytes()[1];
+        arr[6] = self.env_data.get_illuminance().to_be_bytes()[0];
+        arr[7] = self.env_data.get_illuminance().to_be_bytes()[1];
         // Probe data
         // Encode soil temperature
         arr[8] = self.probe_data.soil_temperature.to_be_bytes()[0];

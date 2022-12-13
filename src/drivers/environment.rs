@@ -1,11 +1,40 @@
+use defmt::Format;
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
 use embassy_time::Delay;
 use futures::future::join;
-use ltr303_async::Ltr303;
-use shtc3_async::Shtc3;
+use ltr303_async::{LTR303Result, Ltr303};
+use serde::{Deserialize, Serialize};
+use shtc3_async::{SHTC3Result, Shtc3};
 
-use super::EnvironmentData;
+#[derive(Format, Clone, Default, Serialize, Deserialize)]
+pub struct EnvironmentData {
+    air_temperature: i16, // unit: 0.01C
+    air_humidity: u16,    // unit: 0.01%
+    illuminance: u16,     // unit: Lux
+}
+
+impl EnvironmentData {
+    fn new(sht_data: SHTC3Result, ltr_data: LTR303Result) -> Self {
+        EnvironmentData {
+            air_temperature: ((sht_data.temperature.as_millidegrees_celsius() / 10i32) as i16),
+            air_humidity: ((sht_data.humidity.as_millipercent() / 10u32) as u16),
+            illuminance: ltr_data.lux,
+        }
+    }
+
+    pub fn get_air_temp(&self) -> i16 {
+        self.air_temperature
+    }
+
+    pub fn get_air_humidity(&self) -> u16 {
+        self.air_humidity
+    }
+
+    pub fn get_illuminance(&self) -> u16 {
+        self.illuminance
+    }
+}
 
 pub struct EnvironmentSensors<T> {
     sht_sensor: Shtc3<T>,
