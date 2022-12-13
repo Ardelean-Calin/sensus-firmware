@@ -88,23 +88,58 @@ pub struct EnvironmentData {
 impl EnvironmentData {
     fn new(sht_data: SHTC3Result, ltr_data: LTR303Result) -> Self {
         EnvironmentData {
-            air_temperature: (sht_data.temperature.as_millidegrees_celsius() as i16),
-            air_humidity: (sht_data.humidity.as_millipercent() as u16),
+            air_temperature: ((sht_data.temperature.as_millidegrees_celsius() / 10i32) as i16),
+            air_humidity: ((sht_data.humidity.as_millipercent() / 10u32) as u16),
             illuminance: ltr_data.lux,
         }
     }
 
     pub fn get_air_temp(&self) -> i16 {
-        self.air_temperature / 10
+        self.air_temperature
     }
 
     pub fn get_air_humidity(&self) -> u16 {
-        self.air_humidity / 10
+        self.air_humidity
     }
 
     pub fn get_illuminance(&self) -> u16 {
         self.illuminance
     }
+}
+
+struct LowPowerPeripherals {
+    pin_sda: AnyPin,
+    pin_scl: AnyPin,
+    pin_probe_en: AnyPin,
+    pin_probe_detect: AnyPin,
+    pin_adc: saadc::AnyInput,
+    pin_freq_in: AnyPin,
+    saadc: peripherals::SAADC,
+    twim: peripherals::TWISPI0,
+    gpiote_ch: GPIOTE_CH0,
+    ppi_ch: PPI_CH0,
+}
+
+struct RgbPins {
+    pin_red: AnyPin,
+    pin_green: AnyPin,
+    pin_blue: AnyPin,
+}
+struct HighPowerPeripherals {
+    pin_chg_detect: AnyPin,
+    pin_plug_detect: AnyPin,
+    pins_rgb: RgbPins,
+    pwm_rgb: peripherals::PWM0,
+    uart: peripherals::UARTE0,
+    pin_uart_tx: AnyPin,
+    pin_uart_rx: AnyPin,
+    flash: nrf_softdevice::Flash,
+}
+
+#[derive(Default, Clone, Format)]
+pub struct PlantBuddyStatus {
+    plugged_in: Option<bool>,
+    charging: Option<bool>,
 }
 
 #[derive(Format, Clone, Serialize, Deserialize)]
@@ -227,41 +262,6 @@ where
             _freq_in: freq_in,
         }
     }
-}
-
-struct LowPowerPeripherals {
-    pin_sda: AnyPin,
-    pin_scl: AnyPin,
-    pin_probe_en: AnyPin,
-    pin_probe_detect: AnyPin,
-    pin_adc: saadc::AnyInput,
-    pin_freq_in: AnyPin,
-    saadc: peripherals::SAADC,
-    twim: peripherals::TWISPI0,
-    gpiote_ch: GPIOTE_CH0,
-    ppi_ch: PPI_CH0,
-}
-
-struct RgbPins {
-    pin_red: AnyPin,
-    pin_green: AnyPin,
-    pin_blue: AnyPin,
-}
-struct HighPowerPeripherals {
-    pin_chg_detect: AnyPin,
-    pin_plug_detect: AnyPin,
-    pins_rgb: RgbPins,
-    pwm_rgb: peripherals::PWM0,
-    uart: peripherals::UARTE0,
-    pin_uart_tx: AnyPin,
-    pin_uart_rx: AnyPin,
-    flash: nrf_softdevice::Flash,
-}
-
-#[derive(Default, Clone, Format)]
-pub struct PlantBuddyStatus {
-    plugged_in: Option<bool>,
-    charging: Option<bool>,
 }
 
 // async fn run_high_power(&mut pwm, &mut pin_red, &mut pin_green, &mut pin_blue, &mut charging_input) {

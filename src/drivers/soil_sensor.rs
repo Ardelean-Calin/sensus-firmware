@@ -98,7 +98,7 @@ where
 
         let probe_data = ProbeData {
             soil_moisture: freq,
-            soil_temperature: temp_milli_c as i16,
+            soil_temperature: (temp_milli_c / 10) as i16,
         };
 
         Ok(probe_data)
