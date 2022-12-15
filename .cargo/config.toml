@@ -1,6 +1,6 @@
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-run --chip nRF52832_xxAA"
+runner = "probe-run --chip nRF52832_xxAA --probe 1366:0101"
 
 [build]
 target = "thumbv7em-none-eabihf" # Cortex-M4F and Cortex-M7F (with FPU)
