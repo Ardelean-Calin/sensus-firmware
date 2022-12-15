@@ -11,7 +11,6 @@
             "cwd": "${workspaceFolder}",
             "connectUnderReset": true,
             "chip": "nRF52832_xxAA",
-            "preLaunchTask": "build-full-debug",
             "flashingConfig": {
                 "flashingEnabled": true,
                 "resetAfterFlashing": true,
@@ -20,13 +19,13 @@
             "coreConfigs": [
                 {
                     "coreIndex": 0,
-                    "programBinary": "${workspaceFolder}/target/thumbv7em-none-eabihf/dev-full/plantbuddy-fw"
+                    "programBinary": "${workspaceFolder}/target/thumbv7em-none-eabihf/debug/plantbuddy-fw"
                 }
             ]
         },
         {
             "cwd": "${workspaceRoot}",
-            "executable": "./target/thumbv7em-none-eabihf/dev-full/plantbuddy-fw",
+            "executable": "./target/thumbv7em-none-eabihf/debug/plantbuddy-fw",
             "svdFile": "./nrf52.svd",
             "name": "Debug with OpenOCD",
             "request": "launch",
@@ -43,11 +42,10 @@
             "postLaunchCommands": [
                 "monitor rtt server start 8765 0",
                 // should span the *right* part of RAM
-                "monitor rtt setup 0x200024b8 0x30 \"SEGGER RTT\"",
+                "monitor rtt setup 0x20002cd0 0x30 \"SEGGER RTT\"",
                 "monitor rtt start",
             ],
             "device": "nrf52832_xxAA",
-            "preLaunchTask": "build-full-debug",
             "searchDir": [],
             "runToEntryPoint": "main",
             "showDevDebugOutput": "none",
