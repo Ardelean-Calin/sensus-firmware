@@ -44,6 +44,9 @@ use ltr303_async::{self, LTR303Result};
 use shared_bus::{BusManager, NullMutex};
 use shtc3_async::{self, SHTC3Result};
 
+use crate::HighPowerPeripherals;
+use crate::LowPowerPeripherals;
+
 use self::soil_sensor::ProbeData;
 
 // Sensor data transmission channel. Queue of 4. 1 publisher, 3 subscribers
@@ -76,35 +79,6 @@ pub struct SensorData {
     pub ltr_data: ltr303_async::LTR303Result,
     pub soil_temperature: i32,
     pub soil_moisture: u32,
-}
-
-struct LowPowerPeripherals {
-    pin_sda: AnyPin,
-    pin_scl: AnyPin,
-    pin_probe_en: AnyPin,
-    pin_probe_detect: AnyPin,
-    pin_adc: saadc::AnyInput,
-    pin_freq_in: AnyPin,
-    saadc: peripherals::SAADC,
-    twim: peripherals::TWISPI0,
-    gpiote_ch: GPIOTE_CH0,
-    ppi_ch: PPI_CH0,
-}
-
-struct RgbPins {
-    pin_red: AnyPin,
-    pin_green: AnyPin,
-    pin_blue: AnyPin,
-}
-struct HighPowerPeripherals {
-    pin_chg_detect: AnyPin,
-    pin_plug_detect: AnyPin,
-    pins_rgb: RgbPins,
-    pwm_rgb: peripherals::PWM0,
-    uart: peripherals::UARTE0,
-    pin_uart_tx: AnyPin,
-    pin_uart_rx: AnyPin,
-    flash: nrf_softdevice::Flash,
 }
 
 #[derive(Default, Clone, Format)]
@@ -241,17 +215,17 @@ async fn monitor_charging(
     pwm: &mut SimplePwm<'_, peripherals::PWM0>,
 ) {
     // info!("This task runs only when plugged in!");
+    // If charging, show a green LED.
     loop {
         if charging_detect.is_high() {
             pwm.set_duty(0, 0);
-            pwm.set_duty(1, 255);
+            pwm.set_duty(1, 0);
             pwm.set_duty(2, 0);
             charging_detect.wait_for_low().await;
         } else {
-            // Set RGB to green. I could send a color via a channel.
             pwm.set_duty(0, 0);
-            pwm.set_duty(1, 0);
-            pwm.set_duty(2, 255);
+            pwm.set_duty(1, 255);
+            pwm.set_duty(2, 0);
             charging_detect.wait_for_high().await
         }
     }
@@ -318,7 +292,6 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
 
         let sensors = sensors::Sensors::new();
         let data_packet = sensors.sample(hw).await;
-        // info!("{:?}", data_packet);
 
         let publisher = SENSOR_DATA_BUS.publisher().unwrap();
         publisher.publish_immediate(data_packet);
@@ -327,70 +300,46 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
     }
 }
 
-async fn monitor_button(pin_btn: AnyPin) {
-    let mut btn = Input::new(pin_btn, Pull::None);
-    loop {
-        btn.wait_for_low().await;
-        info!("Starting countdown...");
+// async fn monitor_button(pin_btn: AnyPin) {
+//     let mut btn = Input::new(pin_btn, Pull::None);
+//     loop {
+//         btn.wait_for_low().await;
+//         info!("Starting countdown...");
 
-        let btn_release_fut = btn.wait_for_high();
-        pin_mut!(btn_release_fut);
-        match select(btn_release_fut, Timer::after(Duration::from_secs(3))).await {
-            futures::future::Either::Left(_) => {
-                // Button was released before timeout, do nothing.
-            }
-            futures::future::Either::Right(_) => {
-                info!("Resestting device.");
-                // We kept the button pressed for 3 seconds. Reset into bootloader mode.
-                // Only allowed on S112. Other softdevice might raise an Error!
-                let power_reg = unsafe { &*pac::POWER::ptr() };
-                power_reg.gpregret.write(|w| unsafe { w.bits(0xA8) });
-                cortex_m::peripheral::SCB::sys_reset();
-                info!("We shouldn't have gotten here...");
-            }
-        }
-    }
-}
+//         let btn_release_fut = btn.wait_for_high();
+//         pin_mut!(btn_release_fut);
+//         match select(btn_release_fut, Timer::after(Duration::from_secs(3))).await {
+//             futures::future::Either::Left(_) => {
+//                 // Button was released before timeout, do nothing.
+//             }
+//             futures::future::Either::Right(_) => {
+//                 info!("Resestting device.");
+//                 // We kept the button pressed for 3 seconds. Reset into bootloader mode.
+//                 // Only allowed on S112. Other softdevice might raise an Error!
+//                 let power_reg = unsafe { &*pac::POWER::ptr() };
+//                 power_reg.gpregret.write(|w| unsafe { w.bits(0xA8) });
+//                 cortex_m::peripheral::SCB::sys_reset();
+//                 info!("We shouldn't have gotten here...");
+//             }
+//         }
+//     }
+// }
 
 #[embassy_executor::task]
-pub async fn application_task(p: Peripherals, flash: Flash) {
-    let lp_peripherals = LowPowerPeripherals {
-        pin_sda: p.P0_14.degrade(),
-        pin_scl: p.P0_15.degrade(),
-        pin_probe_en: p.P0_06.degrade(),
-        pin_probe_detect: p.P0_20.degrade(),
-        pin_adc: p.P0_03.into(),
-        pin_freq_in: p.P0_19.degrade(),
-        saadc: p.SAADC,
-        twim: p.TWISPI0,
-        gpiote_ch: p.GPIOTE_CH0,
-        ppi_ch: p.PPI_CH0,
-    };
-    // TODO: Unless connected via GATT, we don't really need to run the sensor task.
+pub async fn application_task(
+    lp_peripherals: LowPowerPeripherals,
+    hp_peripherals: HighPowerPeripherals,
+) {
+    info!("Spawned application task!");
     let low_power_fut = run_low_power(lp_peripherals);
     pin_mut!(low_power_fut);
-
-    let hp_peripherals = HighPowerPeripherals {
-        pin_chg_detect: p.P0_29.degrade(),
-        pin_plug_detect: p.P0_31.degrade(),
-        pins_rgb: RgbPins {
-            pin_red: p.P0_22.degrade(),
-            pin_green: p.P0_23.degrade(),
-            pin_blue: p.P0_24.degrade(),
-        },
-        pwm_rgb: p.PWM0,
-        uart: p.UARTE0,
-        pin_uart_tx: p.P0_26.degrade(),
-        pin_uart_rx: p.P0_25.degrade(),
-        flash,
-    };
     let high_power_fut = run_high_power(hp_peripherals);
     pin_mut!(high_power_fut);
 
-    let button_monitor_fut = monitor_button(p.P0_04.degrade());
-    pin_mut!(button_monitor_fut);
+    // let button_monitor_fut = monitor_button(p.P0_04.degrade());
+    // pin_mut!(button_monitor_fut);
 
-    join3(low_power_fut, high_power_fut, button_monitor_fut).await;
+    join(low_power_fut, high_power_fut).await;
 }
 
 #[cfg(test)]

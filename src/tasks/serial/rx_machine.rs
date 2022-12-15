@@ -1,20 +1,18 @@
 use core::ops::DerefMut;
 
-use defmt::{info, Format};
+use defmt::{info, warn};
 use embassy_boot_nrf::FirmwareUpdater;
-use embassy_embedded_hal::adapter::BlockingAsync;
-use embassy_nrf::{
-    nvmc::Nvmc,
-    peripherals::{NVMC, UARTE0},
-    uarte::UarteRx,
-};
+use embassy_nrf::{peripherals::UARTE0, uarte::UarteRx};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
+use embassy_time::{Duration, Timer};
+use futures::{future::select, pin_mut};
 use heapless::Vec;
 use postcard::from_bytes_cobs;
 
 use super::{CommPacket, PacketID, UartError, TX_PACKET_CHANNEL};
 
 enum State {
-    Idle,
+    Start,
     StreamingData,
     AwaitNoPages,
     NextPage,
@@ -65,39 +63,22 @@ async fn send_response(response: PacketID) {
     TX_PACKET_CHANNEL.send(packet).await;
 }
 
-pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softdevice::Flash) {
+pub async fn dfu_sm(mut rx: &mut UarteRx<'_, UARTE0>, flash: &mut nrf_softdevice::Flash) {
     let mut page_buffer: Vec<u8, 4096> = Vec::new();
-    let mut current_state = State::Idle;
+    let mut current_state = State::Start;
     let mut no_of_pages = 0u8;
     let mut no_of_frames = 0u8;
     let mut page_offset = 0u32;
     // Firmware update related
     let mut updater = FirmwareUpdater::default();
-
-    // TODO: Lots of problems with this state machine...I am not handling errors properly, for once.
     loop {
+        TIMEOUT_CHANNEL.send(1).await;
         match current_state {
-            State::Idle => {
-                // Wait for a packet
-                let packet = recv_packet(&mut rx).await.unwrap();
-                match packet.id {
-                    PacketID::STREAM_START => {
-                        // TODO: Send a signal to the TX state machine. It should know
-                        // to also switch to streaming.
-                        current_state = State::StreamingData;
-                    }
-                    PacketID::DFU_START => {
-                        send_response(PacketID::REQ_NO_PAGES).await;
-                        current_state = State::AwaitNoPages;
-                        info!("Received DFU start. Wating number of pages.")
-                    }
-                    e => {
-                        panic!(
-                            "Only DFU Start and STREAM START are valid commands here. {:?}",
-                            e
-                        )
-                    }
-                }
+            State::Start => {
+                send_response(PacketID::REQ_NO_PAGES).await;
+                // Create a timeout...
+                current_state = State::AwaitNoPages;
+                info!("Received DFU start. Wating number of pages.")
             }
             State::AwaitNoPages => {
                 let packet = recv_packet(&mut rx).await.unwrap();
@@ -184,8 +165,59 @@ pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softd
                 if let PacketID::STREAM_STOP = packet.id {
                     // TODO: Send a signal to the TX state machine. It should know
                     // to also switch off streaming.
-                    current_state = State::Idle;
+                    current_state = State::Start;
                 }
+            }
+        }
+    }
+}
+
+static TIMEOUT_CHANNEL: Channel<ThreadModeRawMutex, u8, 1> = Channel::new();
+
+async fn dfu_sm_timout() {
+    loop {
+        let timeout_fut = Timer::after(Duration::from_millis(1000)); // I need a longer timeout because flashing will raise a DropBomb error if not...
+        let new_activity_fut = TIMEOUT_CHANNEL.recv();
+
+        pin_mut!(timeout_fut);
+        pin_mut!(new_activity_fut);
+
+        match select(timeout_fut, new_activity_fut).await {
+            futures::future::Either::Left(_) => return,
+            futures::future::Either::Right(_) => {}
+        }
+    }
+}
+
+pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softdevice::Flash) {
+    // TODO: Lots of problems with this state machine...I am not handling errors properly, for once.
+    loop {
+        // Wait for a packet
+        let packet = recv_packet(&mut rx).await.unwrap();
+        match packet.id {
+            PacketID::STREAM_START => {
+                // TODO: Send a signal to the TX state machine. It should know
+                // to also switch to streaming.
+            }
+            PacketID::DFU_START => {
+                let dfu_fut = dfu_sm(&mut rx, flash);
+                pin_mut!(dfu_fut);
+                // Timeout the DFU after 30 seconds...
+                let dfu_timeout_fut = dfu_sm_timout();
+                pin_mut!(dfu_timeout_fut);
+
+                match select(dfu_timeout_fut, dfu_fut).await {
+                    futures::future::Either::Left(_) => {
+                        warn!("A timeout occurred while DFU-ing...");
+                    }
+                    futures::future::Either::Right(_) => info!("DFU successful! Restarting..."),
+                }
+            }
+            e => {
+                panic!(
+                    "Only DFU Start and STREAM START are valid commands here. {:?}",
+                    e
+                )
             }
         }
     }

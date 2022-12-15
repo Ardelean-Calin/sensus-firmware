@@ -1,4 +1,4 @@
-use defmt::Format;
+use defmt::{info, Format};
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
 use embassy_time::Delay;
@@ -17,7 +17,8 @@ pub struct EnvironmentData {
 impl EnvironmentData {
     fn new(sht_data: SHTC3Result, ltr_data: LTR303Result) -> Self {
         EnvironmentData {
-            air_temperature: ((sht_data.temperature.as_millidegrees_celsius() / 10i32) as i16),
+            air_temperature: (((sht_data.temperature.as_millidegrees_celsius() - 1500) / 10i32)
+                as i16),
             air_humidity: ((sht_data.humidity.as_millipercent() / 10u32) as u16),
             illuminance: ltr_data.lux,
         }
@@ -64,12 +65,10 @@ where
             self.ltr_sensor.sample(&mut delay2),
         )
         .await;
-
-        let data = EnvironmentData::new(
+        info!("Sampled env sensor!");
+        EnvironmentData::new(
             result_sht.unwrap_or(Default::default()),
             result_ltr.unwrap_or(Default::default()),
-        );
-
-        data
+        )
     }
 }

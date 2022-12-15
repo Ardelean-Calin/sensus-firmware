@@ -1,5 +1,5 @@
 use embassy_nrf::gpio::Pin;
-use futures::future::join3;
+use futures::{future::join3, pin_mut};
 
 use super::{
     battery_sensor::BatterySensor, environment::EnvironmentSensors, soil_sensor::SoilSensor,
@@ -30,13 +30,16 @@ impl Sensors {
         // Battery voltage sensor. TODO could also be battery status
         let mut batt_sensor = BatterySensor::new(hw.adc);
 
+        let env_fut = env_sensors.sample();
+        let probe_fut = probe_sensor.sample();
+        let batt_fut = batt_sensor.sample_mv();
+
+        pin_mut!(env_fut);
+        pin_mut!(probe_fut);
+        pin_mut!(batt_fut);
+
         // Sample everything at the same time to save processing time.
-        let (environment_data, probe_data, batt_mv) = join3(
-            env_sensors.sample(),
-            probe_sensor.sample(),
-            batt_sensor.sample_mv(),
-        )
-        .await;
+        let (environment_data, probe_data, batt_mv) = join3(env_fut, probe_fut, batt_fut).await;
 
         // I could have some type of field representing invalid data. InvalidData<LastData>. This way, in case
         // of an error I keep the last received value (or 0 if no value) and just wrap it inside InvalidData

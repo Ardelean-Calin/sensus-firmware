@@ -18,12 +18,48 @@ use defmt::info;
 use embassy_boot_nrf::FirmwareUpdater;
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
-use embassy_nrf::nvmc::Nvmc;
+use embassy_nrf::{
+    gpio::{AnyPin, Pin},
+    nvmc::Nvmc,
+    peripherals, saadc,
+    wdt::Watchdog,
+};
+use futures::StreamExt;
 use nrf52832_pac as pac;
 use static_cell::StaticCell;
 
 /// I need to create a custom executor to patch some very specific hardware bugs found on nRF52832.
 static EXECUTOR: StaticCell<custom_executor::Executor> = StaticCell::new();
+
+struct RgbPins {
+    pin_red: AnyPin,
+    pin_green: AnyPin,
+    pin_blue: AnyPin,
+}
+
+pub struct LowPowerPeripherals {
+    pin_sda: AnyPin,
+    pin_scl: AnyPin,
+    pin_probe_en: AnyPin,
+    pin_probe_detect: AnyPin,
+    pin_adc: saadc::AnyInput,
+    pin_freq_in: AnyPin,
+    saadc: peripherals::SAADC,
+    twim: peripherals::TWISPI0,
+    gpiote_ch: peripherals::GPIOTE_CH0,
+    ppi_ch: peripherals::PPI_CH0,
+}
+
+pub struct HighPowerPeripherals {
+    pin_chg_detect: AnyPin,
+    pin_plug_detect: AnyPin,
+    pins_rgb: RgbPins,
+    pwm_rgb: peripherals::PWM0,
+    uart: peripherals::UARTE0,
+    pin_uart_tx: AnyPin,
+    pin_uart_rx: AnyPin,
+    flash: nrf_softdevice::Flash,
+}
 
 // Reconfigure UICR to enable reset pin if required (resets if changed).
 pub fn configure_reset_pin() {
@@ -125,7 +161,6 @@ async fn main_task() {
     // Enable the softdevice.
     let (sd, server) = ble::configure_ble();
     spawner.must_spawn(ble::softdevice_task(sd));
-    // disable_mwu();
 
     // // #[cfg(not(debug_assertions))]
     // // if let Some(msg) = get_panic_message_bytes() {
@@ -134,10 +169,62 @@ async fn main_task() {
     // // }
 
     let flash = nrf_softdevice::Flash::take(sd);
-    spawner.must_spawn(app::application_task(p, flash));
+    let lp_peripherals = LowPowerPeripherals {
+        pin_sda: p.P0_14.degrade(),
+        pin_scl: p.P0_15.degrade(),
+        pin_probe_en: p.P0_06.degrade(),
+        pin_probe_detect: p.P0_20.degrade(),
+        pin_adc: p.P0_03.into(),
+        pin_freq_in: p.P0_19.degrade(),
+        saadc: p.SAADC,
+        twim: p.TWISPI0,
+        gpiote_ch: p.GPIOTE_CH0,
+        ppi_ch: p.PPI_CH0,
+    };
+
+    let hp_peripherals = HighPowerPeripherals {
+        pin_chg_detect: p.P0_29.degrade(),
+        pin_plug_detect: p.P0_31.degrade(),
+        pins_rgb: RgbPins {
+            pin_red: p.P0_22.degrade(),
+            pin_green: p.P0_23.degrade(),
+            pin_blue: p.P0_24.degrade(),
+        },
+        pwm_rgb: p.PWM0,
+        uart: p.UARTE0,
+        pin_uart_tx: p.P0_26.degrade(),
+        pin_uart_rx: p.P0_25.degrade(),
+        flash,
+    };
+
+    spawner.must_spawn(app::application_task(lp_peripherals, hp_peripherals));
+    spawner.must_spawn(watchdog_task(p.WDT));
 
     // Should await forever.
     ble::run_ble_application(sd, &server).await;
+}
+
+#[embassy_executor::task]
+async fn watchdog_task(wdt: peripherals::WDT) {
+    let mut wdt_config = embassy_nrf::wdt::Config::default();
+    wdt_config.timeout_ticks = 32768 * 3; // 3 seconds
+    wdt_config.run_during_sleep = true;
+    wdt_config.run_during_debug_halt = false; // false so that we can see the panic message in debug mode.
+
+    let (_wdt, [mut handle]) = match Watchdog::try_new(wdt, wdt_config) {
+        Ok(x) => x,
+        Err(_) => {
+            info!("Watchdog already active with wrong config, waiting for it to timeout...");
+            loop {}
+        }
+    };
+
+    // Feed the watchdog every 1.5 second. If something happens, the watchdog will reset our microcontroller.
+    let mut ticker = embassy_time::Ticker::every(embassy_time::Duration::from_millis(1500));
+    loop {
+        handle.pet();
+        ticker.next().await;
+    }
 }
 
 #[entry]

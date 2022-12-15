@@ -7,13 +7,14 @@ edition = "2021"
 
 
 [features]
-default = ["ble-gatt-server", "ble-sec", "nrf52832", "ble-l2cap"]
+default = ["ble-gatt-server", "ble-sec", "nrf52832", "ble-l2cap", "softdevice"]
 
 ble-l2cap = ["nrf-softdevice/ble-l2cap"]
 ble-gatt-server = ["nrf-softdevice/ble-gatt-server"]
 ble-gatt-client = ["nrf-softdevice/ble-gatt-client"]
 ble-sec = ["nrf-softdevice/ble-sec"]
 nrf52832 = []
+softdevice = []
 
 [dependencies]
 embassy-executor = { version = "0.1.0", features = [
