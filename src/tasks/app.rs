@@ -54,7 +54,7 @@ pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 
     PubSubChannel::new();
 
 #[cfg(debug_assertions)]
-static MEAS_INTERVAL: Duration = Duration::from_secs(3); // TODO: have a default val but change via BLE
+static MEAS_INTERVAL: Duration = Duration::from_millis(3000); // TODO: have a default val but change via BLE
 #[cfg(not(debug_assertions))]
 static MEAS_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -235,8 +235,9 @@ async fn run_high_power(mut peripherals: HighPowerPeripherals) {
     let mut plugged_detect = Input::new(peripherals.pin_plug_detect, Pull::Up);
     let mut charging_detect = Input::new(peripherals.pin_chg_detect, Pull::Up);
     loop {
-        // Wait for Plantbuddy to be plugged in.
+        // Wait for Plantbuddy to be plugged in. High power peripherals are uninitialized until I plug in
         plugged_detect.wait_for_low().await;
+        // Theoretically, the peripherals initialized in the previous loop will be dropped at the end of the loop.
         info!("Plantbuddy plugged in!");
         let mut rgbled = SimplePwm::new_3ch(
             &mut peripherals.pwm_rgb,
@@ -291,12 +292,15 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
         );
 
         let sensors = sensors::Sensors::new();
-        let data_packet = sensors.sample(hw).await;
-
-        let publisher = SENSOR_DATA_BUS.publisher().unwrap();
-        publisher.publish_immediate(data_packet);
-
-        ticker.next().await;
+        if let Ok(data_packet) = sensors.sample(hw).await {
+            info!("{:?}", data_packet);
+            let publisher = SENSOR_DATA_BUS.publisher().unwrap();
+            publisher.publish_immediate(data_packet);
+            ticker.next().await;
+        } else {
+            // Try three times... Afterwards report error and sleep. TODO.
+            warn!("Error sampling sensor.");
+        };
     }
 }
 
