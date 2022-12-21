@@ -11,6 +11,8 @@ use postcard::from_bytes_cobs;
 
 use super::{CommPacket, PacketID, UartError, TX_PACKET_CHANNEL};
 
+static RX_PACKET_CHANNEL: Channel<ThreadModeRawMutex, CommPacket, 1> = Channel::new();
+
 enum State {
     Start,
     StreamingData,
@@ -81,7 +83,7 @@ pub async fn dfu_sm(mut rx: &mut UarteRx<'_, UARTE0>, flash: &mut nrf_softdevice
                 info!("Received DFU start. Wating number of pages.")
             }
             State::AwaitNoPages => {
-                let packet = recv_packet(&mut rx).await.unwrap();
+                let packet = RX_PACKET_CHANNEL.recv().await;
                 if let PacketID::DFU_NO_PAGES = packet.id {
                     no_of_pages = packet.data[0];
                     current_state = State::NextPage;
@@ -105,7 +107,7 @@ pub async fn dfu_sm(mut rx: &mut UarteRx<'_, UARTE0>, flash: &mut nrf_softdevice
             }
             State::AwaitNoFrames => {
                 // We then wait to receive the page frame number.
-                let packet = recv_packet(&mut rx).await.unwrap();
+                let packet = RX_PACKET_CHANNEL.recv().await;
                 if let PacketID::DFU_NO_FRAMES = packet.id {
                     no_of_frames = packet.data[0];
                     current_state = State::NextFrame;
@@ -126,7 +128,7 @@ pub async fn dfu_sm(mut rx: &mut UarteRx<'_, UARTE0>, flash: &mut nrf_softdevice
                 }
             }
             State::WaitFrame => {
-                let packet = recv_packet(&mut rx).await.unwrap();
+                let packet = RX_PACKET_CHANNEL.recv().await;
                 if let PacketID::DFU_FRAME = packet.id {
                     // Store the received frame in the data vector.
                     page_buffer.extend(packet.data);
@@ -161,7 +163,7 @@ pub async fn dfu_sm(mut rx: &mut UarteRx<'_, UARTE0>, flash: &mut nrf_softdevice
             }
             State::StreamingData => {
                 // Wait for a packet
-                let packet = recv_packet(&mut rx).await.unwrap();
+                let packet = RX_PACKET_CHANNEL.recv().await;
                 if let PacketID::STREAM_STOP = packet.id {
                     // TODO: Send a signal to the TX state machine. It should know
                     // to also switch off streaming.
@@ -189,11 +191,18 @@ async fn dfu_sm_timout() {
     }
 }
 
+pub async fn rx_publisher(mut rx: UarteRx<'_, UARTE0>) {
+    let packet = recv_packet(&mut rx).await.unwrap();
+    RX_PACKET_CHANNEL.send(packet).await;
+}
+
 pub async fn rx_state_machine(mut rx: UarteRx<'_, UARTE0>, flash: &mut nrf_softdevice::Flash) {
     // TODO: Lots of problems with this state machine...I am not handling errors properly, for once.
     loop {
         // Wait for a packet
         let packet = recv_packet(&mut rx).await.unwrap();
+        // let packet = RX_PACKET_CHANNEL.recv().await;
+        // RX_PACKET_CHANNEL.send(packet).await;
         match packet.id {
             PacketID::STREAM_START => {
                 // TODO: Send a signal to the TX state machine. It should know

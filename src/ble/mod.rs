@@ -7,7 +7,8 @@ use nrf_softdevice::ble::{gatt_server, peripheral, Connection, TxPower};
 use nrf_softdevice::{raw, Softdevice};
 use raw::{sd_power_dcdc_mode_set, NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE};
 
-use crate::app::{DataPacket, SENSOR_DATA_BUS};
+use crate::tasks::app::SENSOR_DATA_BUS;
+use crate::tasks::sensors::types::DataPacket;
 
 use core::mem;
 
@@ -48,7 +49,6 @@ async fn update_gatt(server: &Server, connection: &Connection) {
     loop {
         // Blocks until the application task (TODO change to "data aquisition task") publishes new data.
         let sensor_data = data_subscriber.next_message_pure().await;
-        info!("BLE got new data: {:?}", sensor_data);
         // update_main_char(server, connection, &sensor_data).unwrap();
     }
 }
@@ -168,7 +168,6 @@ pub async fn run_ble_application(sd: &'static Softdevice, server: &Server) {
         pin_mut!(run_gatt_server_fut);
         match select(new_data_fut, run_gatt_server_fut).await {
             futures::future::Either::Left((new_data, _)) => {
-                info!("Got new data! Advertising again..");
                 data = new_data;
             }
             futures::future::Either::Right(_) => {

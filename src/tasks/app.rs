@@ -23,19 +23,6 @@ use nrf52832_pac as pac;
 use nrf_softdevice::Flash;
 use serde::{Deserialize, Serialize};
 
-#[path = "../drivers/battery_sensor.rs"]
-mod battery_sensor;
-
-#[path = "../drivers/environment.rs"]
-mod environment;
-
-#[path = "../drivers/soil_sensor.rs"]
-mod soil_sensor;
-
-mod sensors;
-
-mod serial;
-
 use futures::{
     future::{join, join3, select},
     pin_mut, StreamExt,
@@ -47,10 +34,10 @@ use shtc3_async::{self, SHTC3Result};
 use crate::HighPowerPeripherals;
 use crate::LowPowerPeripherals;
 
-use self::soil_sensor::ProbeData;
+use super::sensors;
 
 // Sensor data transmission channel. Queue of 4. 1 publisher, 3 subscribers
-pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, DataPacket, 4, 3, 1> =
+pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, sensors::types::DataPacket, 4, 3, 1> =
     PubSubChannel::new();
 
 #[cfg(debug_assertions)]
@@ -87,52 +74,16 @@ pub struct PlantBuddyStatus {
     charging: Option<bool>,
 }
 
-#[derive(Format, Clone, Serialize, Deserialize)]
-pub struct DataPacket {
-    pub battery_voltage: u16, // unit: mV
-    pub env_data: environment::EnvironmentData,
-    pub probe_data: ProbeData,
-}
-
-impl DataPacket {
-    pub fn to_bytes_array(&self) -> [u8; 14] {
-        let mut arr = [0u8; 14];
-        // Encode battery voltage
-        arr[0] = self.battery_voltage.to_be_bytes()[0];
-        arr[1] = self.battery_voltage.to_be_bytes()[1];
-        // Encode air temperature
-        arr[2] = self.env_data.get_air_temp().to_be_bytes()[0];
-        arr[3] = self.env_data.get_air_temp().to_be_bytes()[1];
-        // Encode air humidity
-        arr[4] = self.env_data.get_air_humidity().to_be_bytes()[0];
-        arr[5] = self.env_data.get_air_humidity().to_be_bytes()[1];
-        // Encode solar illuminance
-        arr[6] = self.env_data.get_illuminance().to_be_bytes()[0];
-        arr[7] = self.env_data.get_illuminance().to_be_bytes()[1];
-        // Probe data
-        // Encode soil temperature
-        arr[8] = self.probe_data.soil_temperature.to_be_bytes()[0];
-        arr[9] = self.probe_data.soil_temperature.to_be_bytes()[1];
-        // Encode soil moisture
-        arr[10] = self.probe_data.soil_moisture.to_be_bytes()[0];
-        arr[11] = self.probe_data.soil_moisture.to_be_bytes()[1];
-        arr[12] = self.probe_data.soil_moisture.to_be_bytes()[2];
-        arr[13] = self.probe_data.soil_moisture.to_be_bytes()[3];
-
-        arr
-    }
-}
-
 pub struct Hardware<'a, P0: Pin, P1: Pin, P2: Pin> {
     // One enable pin for external sensors (frequency + tmp112)
-    enable_pin: Output<'a, P0>,
+    pub enable_pin: Output<'a, P0>,
     // One I2C bus for SHTC3 and LTR303-ALS, as well as TMP112.
-    i2c_bus: BusManager<NullMutex<Twim<'a, TWISPI0>>>,
+    pub i2c_bus: BusManager<NullMutex<Twim<'a, TWISPI0>>>,
     // Two v2 timers for the frequency measurement as well as one PPI channel.
-    freq_cnter: timerv2::Timer<CounterType>,
-    freq_timer: timerv2::Timer<TimerType>,
-    probe_detect: Input<'a, P1>,
-    adc: Saadc<'a, 1>,
+    pub freq_cnter: timerv2::Timer<CounterType>,
+    pub freq_timer: timerv2::Timer<TimerType>,
+    pub probe_detect: Input<'a, P1>,
+    pub adc: Saadc<'a, 1>,
     // Private variables. Why? Because they get dropped if I don't store them here.
     _ppi_ch: Ppi<'a, PPI_CH0, 1, 1>,
     _freq_in: InputChannel<'a, GPIOTE_CH0, P2>,
@@ -249,11 +200,10 @@ async fn run_high_power(mut peripherals: HighPowerPeripherals) {
         // After plugged in, run the high-power coroutine
         let charging_monitor_fut = monitor_charging(&mut charging_detect, &mut rgbled);
         pin_mut!(charging_monitor_fut);
-        let usb_comm_fut = serial::serial_task(
+        let usb_comm_fut = super::serial::serial_task(
             &mut peripherals.uart,
             &mut peripherals.pin_uart_tx,
             &mut peripherals.pin_uart_rx,
-            &mut peripherals.flash,
         );
         let plugged_out_fut = plugged_detect.wait_for_high();
         pin_mut!(plugged_out_fut);
@@ -291,9 +241,8 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
             &mut i2c_irq,
         );
 
-        let sensors = sensors::Sensors::new();
+        let sensors = super::sensors::Sensors::new();
         if let Ok(data_packet) = sensors.sample(hw).await {
-            info!("{:?}", data_packet);
             let publisher = SENSOR_DATA_BUS.publisher().unwrap();
             publisher.publish_immediate(data_packet);
             ticker.next().await;
@@ -303,31 +252,6 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
         };
     }
 }
-
-// async fn monitor_button(pin_btn: AnyPin) {
-//     let mut btn = Input::new(pin_btn, Pull::None);
-//     loop {
-//         btn.wait_for_low().await;
-//         info!("Starting countdown...");
-
-//         let btn_release_fut = btn.wait_for_high();
-//         pin_mut!(btn_release_fut);
-//         match select(btn_release_fut, Timer::after(Duration::from_secs(3))).await {
-//             futures::future::Either::Left(_) => {
-//                 // Button was released before timeout, do nothing.
-//             }
-//             futures::future::Either::Right(_) => {
-//                 info!("Resestting device.");
-//                 // We kept the button pressed for 3 seconds. Reset into bootloader mode.
-//                 // Only allowed on S112. Other softdevice might raise an Error!
-//                 let power_reg = unsafe { &*pac::POWER::ptr() };
-//                 power_reg.gpregret.write(|w| unsafe { w.bits(0xA8) });
-//                 cortex_m::peripheral::SCB::sys_reset();
-//                 info!("We shouldn't have gotten here...");
-//             }
-//         }
-//     }
-// }
 
 #[embassy_executor::task]
 pub async fn application_task(
@@ -344,31 +268,4 @@ pub async fn application_task(
     // pin_mut!(button_monitor_fut);
 
     join(low_power_fut, high_power_fut).await;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_data_packet() {
-        let packet = DataPacket {
-            battery_voltage: 0xAABBu16,
-            env_data: super::EnvironmentData {
-                air_temperature: 2986,
-                air_humidity: 4545,
-                illuminance: 33,
-            },
-            probe_data: ProbeData {
-                soil_moisture: 1234567,
-                soil_temperature: 2981,
-            },
-        };
-
-        let encoded = packet.to_bytes_array();
-        assert_eq!(
-            encoded,
-            [0xBB, 0xAA, 0x0B, 0xAA, 0x11, 0xC1, 0x00, 0x21, 0x0B, 0xA5, 0x00, 0x12, 0xD6, 0x87]
-        );
-    }
 }

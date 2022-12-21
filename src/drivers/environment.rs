@@ -70,7 +70,6 @@ where
             self.ltr_sensor.sample(&mut delay2),
         )
         .await;
-        info!("Sampled env sensor!");
 
         let sht_data = result_sht.map_err(|_| Error::SHTC3Error)?;
         let ltr_data = result_ltr.map_err(|_| Error::LTR303Error)?;

@@ -1,10 +1,14 @@
 use embassy_nrf::gpio::Pin;
 use futures::{future::join3, pin_mut};
 
-use super::{
+pub mod types;
+use types::*;
+
+use crate::drivers::{
     battery_sensor::BatterySensor, environment::EnvironmentSensors, soil_sensor::SoilSensor,
-    DataPacket, Hardware,
 };
+
+use super::app::Hardware;
 
 pub enum SensorError {
     I2CError,

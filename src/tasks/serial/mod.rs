@@ -1,60 +1,94 @@
-use core::default;
+use core::ops::DerefMut;
 
 use defmt::info;
-use defmt::Format;
 use embassy_nrf::gpio::AnyPin;
 use embassy_nrf::interrupt;
 use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::peripherals;
+use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_nrf::uarte::UarteRx;
+use embassy_nrf::uarte::UarteTx;
 use futures::future::join;
 use futures::pin_mut;
-use serde::Deserialize;
-use serde::Serialize;
+use heapless::Vec;
+use postcard::{from_bytes_cobs, to_slice_cobs};
 
-mod rx_machine;
-mod tx_machine;
-
-#[allow(non_camel_case_types)]
-#[derive(Format, Serialize, Deserialize, Clone, Debug, Default)]
-enum PacketID {
-    #[default]
-    STREAM_START = 0x31, // Starts data streaming via UART
-    STREAM_STOP = 0x32,    // Stops data streaming via UART
-    DFU_START = 0x33,      // Represents the start of a dfu operation
-    REQ_NO_PAGES = 0x34,   // Represents a request for the number of pages
-    DFU_NO_PAGES = 0x35,   // The received number of pages.
-    REQ_NEXT_PAGE = 0x36, // Indicates to the updated to prepare the next page. Updater will send the number of transfers required for this page.
-    DFU_NO_FRAMES = 0x37, // The number of frames in the requested page
-    REQ_NEXT_FRAME = 0x38, // Uploader, please give me the next 128-byte frame.
-    DFU_FRAME = 0x39,     // This is how we represent a DFU frame.
-    DFU_DONE = 0x3A,      // Sent by us to mark that the DFU is done.
-    REQ_RETRY = 0xFE,     // Retry sending the last frame.
-    ERROR = 0xFF,         // Represents an error
-}
-
-#[derive(Serialize, Deserialize, Clone, Default)]
-struct CommPacket {
-    id: PacketID,
-    data: heapless::Vec<u8, 128>,
-}
+use crate::types::CommError;
+use crate::types::CommPacket;
+use crate::RX_CHANNEL;
+use crate::TX_CHANNEL;
 
 #[derive(Debug)]
 enum UartError {
+    GenericRxError,
     RxBufferFull,
     DecodeError,
     TxError,
 }
 
-static TX_PACKET_CHANNEL: Channel<ThreadModeRawMutex, CommPacket, 1> = Channel::new();
+/// Reads until a 0x00 is found.
+async fn read_cobs_frame(rx: &mut UarteRx<'_, UARTE0>) -> Result<Vec<u8, 200>, UartError> {
+    let mut buf = [0u8; 1];
+    let mut cobs_frame: Vec<u8, 200> = Vec::new();
+    loop {
+        rx.read(&mut buf)
+            .await
+            .map_err(|_| UartError::GenericRxError)?;
+        cobs_frame
+            .push(buf[0])
+            .map_err(|_| UartError::GenericRxError)?;
+
+        if buf[0] == 0x00 {
+            // Done.
+            return Ok(cobs_frame);
+        }
+        if cobs_frame.is_full() {
+            return Err(UartError::RxBufferFull);
+        }
+    }
+}
+
+/// Waits for a COBS-encoded packet on UART and tries to transform it into a CommPacket.
+async fn recv_packet(rx: &mut UarteRx<'_, UARTE0>) -> Result<CommPacket, CommError> {
+    let mut raw_data = read_cobs_frame(rx)
+        .await
+        .map_err(|_| CommError::PhysError)?;
+
+    let rx_data = raw_data.deref_mut();
+    let packet: CommPacket = from_bytes_cobs(rx_data).map_err(|_| CommError::MalformedPacket)?;
+    Ok(packet)
+}
+
+/// Sends a COBS-encoded packet over UART.
+async fn send_packet(tx: &mut UarteTx<'_, UARTE0>, packet: CommPacket) -> Result<(), UartError> {
+    let mut buf = [0u8; 200];
+    let tx_buf = to_slice_cobs(&packet, &mut buf).unwrap();
+
+    tx.write(tx_buf).await.map_err(|_| UartError::TxError)?;
+
+    Ok(())
+}
+
+pub async fn rx_task(mut rx: UarteRx<'_, UARTE0>) {
+    loop {
+        let packet = recv_packet(&mut rx).await;
+        RX_CHANNEL.immediate_publisher().publish_immediate(packet);
+    }
+}
+
+pub async fn tx_task(mut tx: UarteTx<'_, UARTE0>) {
+    let mut subscriber = TX_CHANNEL.subscriber().unwrap();
+    loop {
+        let packet_to_send = subscriber.next_message_pure().await;
+        let _ = send_packet(&mut tx, packet_to_send).await;
+    }
+}
 
 pub async fn serial_task(
     instance: &mut peripherals::UARTE0,
     pin_tx: &mut AnyPin,
     pin_rx: &mut AnyPin,
-    flash: &mut nrf_softdevice::Flash,
 ) {
     info!("UART task started!");
     // UART-related
@@ -67,8 +101,8 @@ pub async fn serial_task(
     let uart = uarte::Uarte::new(instance, uart_irq, pin_rx, pin_tx, config);
     let (tx, rx) = uart.split();
 
-    let rx_fut = rx_machine::rx_state_machine(rx, flash);
-    let tx_fut = tx_machine::tx_state_machine(tx);
+    let rx_fut = rx_task(rx);
+    let tx_fut = tx_task(tx);
     pin_mut!(rx_fut);
     pin_mut!(tx_fut);
 

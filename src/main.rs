@@ -4,12 +4,13 @@
 #![feature(future_join)]
 #![feature(async_fn_in_trait)]
 
-#[path = "tasks/app.rs"]
-mod app;
-
 mod ble;
+mod drivers;
 mod error;
 mod prelude;
+mod tasks;
+mod types;
+use types::*;
 
 mod custom_executor;
 
@@ -24,9 +25,22 @@ use embassy_nrf::{
     peripherals, saadc,
     wdt::Watchdog,
 };
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex, pubsub::PubSubChannel};
 use futures::StreamExt;
 use nrf52832_pac as pac;
 use static_cell::StaticCell;
+
+/// TODO: Maybe add an Error Channel, used to report errors from different modules?
+/// We use channels to transmit data packets between modules.
+/// A pub-sub transmit channel with 3 queue items, 2 subscribers and 1 publisher.
+/// Sends data to the user
+static TX_CHANNEL: PubSubChannel<ThreadModeRawMutex, CommPacket, 3, 2, 1> = PubSubChannel::new();
+/// A pub-sub receive channel with 3 queue items, 2 subscribers and 1 publisher.
+/// Received data from the user
+static RX_CHANNEL: PubSubChannel<ThreadModeRawMutex, Result<CommPacket, CommError>, 3, 2, 1> =
+    PubSubChannel::new();
+/// DFU ongoing. Used to make sure I don't send data while DFU is taking place somewhere else.
+static DFU_ONGOING: Mutex<ThreadModeRawMutex, u8> = Mutex::new(0);
 
 /// I need to create a custom executor to patch some very specific hardware bugs found on nRF52832.
 static EXECUTOR: StaticCell<custom_executor::Executor> = StaticCell::new();
@@ -58,7 +72,6 @@ pub struct HighPowerPeripherals {
     uart: peripherals::UARTE0,
     pin_uart_tx: AnyPin,
     pin_uart_rx: AnyPin,
-    flash: nrf_softdevice::Flash,
 }
 
 // Reconfigure UICR to enable reset pin if required (resets if changed).
@@ -194,10 +207,10 @@ async fn main_task() {
         uart: p.UARTE0,
         pin_uart_tx: p.P0_26.degrade(),
         pin_uart_rx: p.P0_25.degrade(),
-        flash,
     };
 
-    spawner.must_spawn(app::application_task(lp_peripherals, hp_peripherals));
+    spawner.must_spawn(tasks::app::application_task(lp_peripherals, hp_peripherals));
+    spawner.must_spawn(tasks::dfu_task::dfu_task(flash));
     spawner.must_spawn(watchdog_task(p.WDT));
 
     // Should await forever.
