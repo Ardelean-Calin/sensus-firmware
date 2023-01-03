@@ -1,6 +1,7 @@
 use core::ops::DerefMut;
 
 use defmt::info;
+use defmt::warn;
 use embassy_nrf::gpio::AnyPin;
 use embassy_nrf::interrupt;
 use embassy_nrf::interrupt::InterruptExt;
@@ -9,15 +10,20 @@ use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte;
 use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::uarte::UarteTx;
+use embassy_time::Duration;
+use embassy_time::Timer;
 use futures::future::join;
+use futures::future::select;
 use futures::pin_mut;
 use heapless::Vec;
 use postcard::{from_bytes_cobs, to_slice_cobs};
 
 use crate::types::CommError;
 use crate::types::CommPacket;
+use crate::PacketDispatcher;
+use crate::CTRL_CHANNEL;
+use crate::DISPATCHER;
 use crate::RX_CHANNEL;
-use crate::TX_CHANNEL;
 
 #[derive(Debug)]
 enum UartError {
@@ -50,10 +56,27 @@ async fn read_cobs_frame(rx: &mut UarteRx<'_, UARTE0>) -> Result<Vec<u8, 200>, U
 }
 
 /// Waits for a COBS-encoded packet on UART and tries to transform it into a CommPacket.
-async fn recv_packet(rx: &mut UarteRx<'_, UARTE0>) -> Result<CommPacket, CommError> {
-    let mut raw_data = read_cobs_frame(rx)
-        .await
-        .map_err(|_| CommError::PhysError)?;
+///
+/// * `rx` - Mutable reference to a UarteRx peripheral.
+/// * `timeout` - Duration after which a timeout error will be reported.
+async fn recv_packet(
+    rx: &mut UarteRx<'_, UARTE0>,
+    timeout: Duration,
+) -> Result<CommPacket, CommError> {
+    let timeout_fut = Timer::after(timeout);
+    pin_mut!(timeout_fut);
+    let rx_fut = read_cobs_frame(rx);
+    pin_mut!(rx_fut);
+
+    let mut raw_data = match select(rx_fut, timeout_fut).await {
+        futures::future::Either::Left((data_result, _)) => {
+            data_result.map_err(|_| CommError::PhysError)
+        }
+        futures::future::Either::Right(_) => {
+            warn!("UART RX timeout!");
+            Err(CommError::Timeout)
+        }
+    }?;
 
     let rx_data = raw_data.deref_mut();
     let packet: CommPacket = from_bytes_cobs(rx_data).map_err(|_| CommError::MalformedPacket)?;
@@ -70,21 +93,6 @@ async fn send_packet(tx: &mut UarteTx<'_, UARTE0>, packet: CommPacket) -> Result
     Ok(())
 }
 
-pub async fn rx_task(mut rx: UarteRx<'_, UARTE0>) {
-    loop {
-        let packet = recv_packet(&mut rx).await;
-        RX_CHANNEL.immediate_publisher().publish_immediate(packet);
-    }
-}
-
-pub async fn tx_task(mut tx: UarteTx<'_, UARTE0>) {
-    let mut subscriber = TX_CHANNEL.subscriber().unwrap();
-    loop {
-        let packet_to_send = subscriber.next_message_pure().await;
-        let _ = send_packet(&mut tx, packet_to_send).await;
-    }
-}
-
 pub async fn serial_task(
     instance: &mut peripherals::UARTE0,
     pin_tx: &mut AnyPin,
@@ -99,12 +107,18 @@ pub async fn serial_task(
     config.baudrate = uarte::Baudrate::BAUD115200;
 
     let uart = uarte::Uarte::new(instance, uart_irq, pin_rx, pin_tx, config);
-    let (tx, rx) = uart.split();
+    let (mut tx, mut rx) = uart.split();
 
-    let rx_fut = rx_task(rx);
-    let tx_fut = tx_task(tx);
-    pin_mut!(rx_fut);
-    pin_mut!(tx_fut);
-
-    join(rx_fut, tx_fut).await;
+    loop {
+        match DISPATCHER.await_command().await {
+            crate::DispatcherCommand::Receive(timeout) => {
+                info!("Waiting for receiving...");
+                let packet = recv_packet(&mut rx, timeout).await;
+                RX_CHANNEL.immediate_publisher().publish_immediate(packet);
+            }
+            crate::DispatcherCommand::Send(packet) => {
+                let _ = send_packet(&mut tx, packet).await;
+            }
+        }
+    }
 }

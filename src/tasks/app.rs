@@ -1,38 +1,36 @@
-use core::{cell::RefCell, mem};
-
-use defmt::{info, unwrap, warn, Format};
+use defmt::{info, warn, Format};
+use embassy_nrf::gpio::AnyPin;
 use embassy_nrf::interrupt::InterruptExt;
+use embassy_nrf::saadc::VddInput;
 use embassy_nrf::{
     self,
-    gpio::{AnyPin, Input, Level, Output, OutputDrive, Pin, Pull},
-    gpiote::{self, InputChannel},
-    interrupt::{self, SAADC, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0},
-    nvmc::Nvmc,
-    peripherals::{self, GPIOTE_CH0, P0_06, P0_14, P0_15, P0_19, P0_20, PPI_CH0, TWISPI0},
-    ppi::{self, Ppi},
+    gpio::{Input, Level, Output, OutputDrive, Pin, Pull},
+    gpiote::InputChannel,
+    interrupt::{self},
+    peripherals::{self, GPIOTE_CH0, PPI_CH0, TWISPI0},
+    ppi::Ppi,
     pwm::SimplePwm,
     saadc::{self, Saadc},
     timerv2::{self, CounterType, TimerType},
     twim::{self, Twim},
-    Peripheral, PeripheralRef, Peripherals,
+    Peripheral,
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::Publisher};
-use embassy_sync::{channel::Channel, pubsub::PubSubChannel};
-use embassy_time::{Duration, Instant, Ticker, Timer};
-use nrf52832_pac as pac;
-use nrf_softdevice::Flash;
-use serde::{Deserialize, Serialize};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_sync::pubsub::PubSubChannel;
+use embassy_time::{Duration, Ticker};
 
 use futures::{
-    future::{join, join3, select},
+    future::{join, select},
     pin_mut, StreamExt,
 };
-use ltr303_async::{self, LTR303Result};
 use shared_bus::{BusManager, NullMutex};
-use shtc3_async::{self, SHTC3Result};
 
+use ltr303_async::{self};
+use shtc3_async::{self};
+
+use crate::ApplicationPeripherals;
 use crate::HighPowerPeripherals;
-use crate::LowPowerPeripherals;
 
 use super::sensors;
 
@@ -44,6 +42,37 @@ pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, sensors::types::Da
 static MEAS_INTERVAL: Duration = Duration::from_millis(3000); // TODO: have a default val but change via BLE
 #[cfg(not(debug_assertions))]
 static MEAS_INTERVAL: Duration = Duration::from_secs(30);
+
+#[derive(PartialEq)]
+enum PowerMode {
+    LowPower,
+    HighPower,
+}
+
+static CHANNEL: Channel<ThreadModeRawMutex, PowerMode, 1> = Channel::new();
+
+struct PowerModeDetect {}
+
+impl PowerModeDetect {
+    fn new() -> Self {
+        PowerModeDetect {}
+    }
+
+    async fn wait_for(&self, power_mode: PowerMode) {
+        loop {
+            let mode = CHANNEL.recv().await;
+            if mode == power_mode {
+                break;
+            }
+        }
+    }
+    async fn wait_for_high_power() {
+        PowerModeDetect::new().wait_for(PowerMode::HighPower).await;
+    }
+    async fn wait_for_low_power() {
+        PowerModeDetect::new().wait_for(PowerMode::LowPower).await;
+    }
+}
 
 // Data we get from main PCB:
 //  2 bytes for battery voltage  => u16; unit: mV
@@ -99,7 +128,6 @@ where
         pin_scl: &'a mut impl Pin,
         pin_probe_en: &'a mut P0,
         pin_probe_detect: &'a mut P1,
-        pin_adc: &'a mut impl Peripheral<P = impl saadc::Input>,
         pin_freq_in: &'a mut P2,
         saadc: &'a mut impl Peripheral<P = peripherals::SAADC>,
         twim: &'a mut impl Peripheral<P = peripherals::TWISPI0>,
@@ -115,12 +143,14 @@ where
         // ADC initialization
         let mut config = saadc::Config::default();
         config.oversample = saadc::Oversample::OVER64X;
-        let channel_cfg = saadc::ChannelConfig::single_ended(pin_adc);
-        let saadc = saadc::Saadc::new(saadc, adc_irq, config, [channel_cfg]);
+        let channel_cfg = saadc::ChannelConfig::single_ended(VddInput);
+        let adc = saadc::Saadc::new(saadc, adc_irq, config, [channel_cfg]);
 
         // I2C initialization
         let mut i2c_config = twim::Config::default();
         i2c_config.frequency = twim::Frequency::K100; // 400k seems to be best for low power consumption.
+        i2c_config.scl_pullup = true;
+        i2c_config.sda_pullup = true;
 
         let i2c_bus = Twim::new(twim, i2c_irq, pin_sda, pin_scl, i2c_config);
         // Create a bus manager to be able to share i2c buses easily.
@@ -136,26 +166,26 @@ where
             .with_bitmode(timerv2::Bitmode::B32)
             .with_frequency(timerv2::Frequency::F1MHz);
 
-        let freq_in = InputChannel::new(
+        let _freq_in = InputChannel::new(
             gpiote_ch,
             Input::new(pin_freq_in, embassy_nrf::gpio::Pull::Up),
             embassy_nrf::gpiote::InputChannelPolarity::HiToLo,
         );
 
-        let mut ppi_ch = Ppi::new_one_to_one(ppi_ch, freq_in.event_in(), freq_cnter.task_count());
-        ppi_ch.enable();
+        let mut _ppi_ch = Ppi::new_one_to_one(ppi_ch, _freq_in.event_in(), freq_cnter.task_count());
+        _ppi_ch.enable();
 
         let probe_detect = Input::new(pin_probe_detect, Pull::Up);
 
         Self {
             enable_pin: probe_en,
-            i2c_bus: i2c_bus,
-            freq_cnter: freq_cnter,
-            freq_timer: freq_timer,
-            probe_detect: probe_detect,
-            adc: saadc,
-            _ppi_ch: ppi_ch,
-            _freq_in: freq_in,
+            i2c_bus,
+            freq_cnter,
+            freq_timer,
+            probe_detect,
+            adc,
+            _ppi_ch,
+            _freq_in,
         }
     }
 }
@@ -183,11 +213,10 @@ async fn monitor_charging(
 }
 
 async fn run_high_power(mut peripherals: HighPowerPeripherals) {
-    let mut plugged_detect = Input::new(peripherals.pin_plug_detect, Pull::Up);
     let mut charging_detect = Input::new(peripherals.pin_chg_detect, Pull::Up);
     loop {
         // Wait for Plantbuddy to be plugged in. High power peripherals are uninitialized until I plug in
-        plugged_detect.wait_for_low().await;
+        PowerModeDetect::wait_for_high_power().await;
         // Theoretically, the peripherals initialized in the previous loop will be dropped at the end of the loop.
         info!("Plantbuddy plugged in!");
         let mut rgbled = SimplePwm::new_3ch(
@@ -205,7 +234,7 @@ async fn run_high_power(mut peripherals: HighPowerPeripherals) {
             &mut peripherals.pin_uart_tx,
             &mut peripherals.pin_uart_rx,
         );
-        let plugged_out_fut = plugged_detect.wait_for_high();
+        let plugged_out_fut = PowerModeDetect::wait_for_low_power();
         pin_mut!(plugged_out_fut);
 
         // Create a high power future. This one runs only when plugged in and only UNTIL plugged in.
@@ -218,7 +247,21 @@ async fn run_high_power(mut peripherals: HighPowerPeripherals) {
     }
 }
 
-async fn run_low_power(mut peripherals: LowPowerPeripherals) {
+/// This task runs only when in low-power mode.
+#[embassy_executor::task]
+pub async fn low_power_task(app_peripherals: ApplicationPeripherals) {
+    // run_low_power(app_peripherals).await;
+}
+
+/// This task runs only when in high-power mode.
+#[embassy_executor::task]
+pub async fn high_power_task(hp_peripherals: HighPowerPeripherals) {
+    run_high_power(hp_peripherals).await;
+}
+
+/// This task runs always. Independent of power mode.
+#[embassy_executor::task]
+pub async fn application_task(mut peripherals: ApplicationPeripherals) {
     let mut adc_irq = interrupt::take!(SAADC);
     adc_irq.set_priority(interrupt::Priority::P7);
     let mut i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
@@ -231,7 +274,6 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
             &mut peripherals.pin_scl,
             &mut peripherals.pin_probe_en,
             &mut peripherals.pin_probe_detect,
-            &mut peripherals.pin_adc,
             &mut peripherals.pin_freq_in,
             &mut peripherals.saadc,
             &mut peripherals.twim,
@@ -243,6 +285,7 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
 
         let sensors = super::sensors::Sensors::new();
         if let Ok(data_packet) = sensors.sample(hw).await {
+            info!("Got new data: {:?}", data_packet);
             let publisher = SENSOR_DATA_BUS.publisher().unwrap();
             publisher.publish_immediate(data_packet);
             ticker.next().await;
@@ -253,19 +296,16 @@ async fn run_low_power(mut peripherals: LowPowerPeripherals) {
     }
 }
 
+/// Monitors the plugged-in state and publishes a global state that can be used by other tasks
+/// to only run when plugged in or plugged out.
 #[embassy_executor::task]
-pub async fn application_task(
-    lp_peripherals: LowPowerPeripherals,
-    hp_peripherals: HighPowerPeripherals,
-) {
-    info!("Spawned application task!");
-    let low_power_fut = run_low_power(lp_peripherals);
-    pin_mut!(low_power_fut);
-    let high_power_fut = run_high_power(hp_peripherals);
-    pin_mut!(high_power_fut);
-
-    // let button_monitor_fut = monitor_button(p.P0_04.degrade());
-    // pin_mut!(button_monitor_fut);
-
-    join(low_power_fut, high_power_fut).await;
+pub async fn power_state_task(plugged_in_pin: AnyPin) {
+    let mut plugged_detect = Input::new(plugged_in_pin, Pull::Up);
+    // By default, we are in low-power state.
+    loop {
+        plugged_detect.wait_for_low().await;
+        CHANNEL.send(PowerMode::HighPower).await;
+        plugged_detect.wait_for_high().await;
+        CHANNEL.send(PowerMode::LowPower).await;
+    }
 }

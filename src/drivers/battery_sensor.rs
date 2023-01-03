@@ -13,7 +13,7 @@ impl<'a> BatterySensor<'a> {
         let mut buf = [0i16; 1];
         self.saadc.calibrate().await;
         self.saadc.sample(&mut buf).await;
-        let voltage: u32 = u32::from(buf[0].unsigned_abs()) * 200000 / 113778;
+        let voltage: u32 = u32::from(buf[0].unsigned_abs()) * 100000 / 113778;
         voltage as u16
     }
 }

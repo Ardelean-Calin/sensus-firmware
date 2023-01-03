@@ -10,6 +10,8 @@ mod error;
 mod prelude;
 mod tasks;
 mod types;
+
+use embassy_time::Duration;
 use types::*;
 
 mod custom_executor;
@@ -25,22 +27,77 @@ use embassy_nrf::{
     peripherals, saadc,
     wdt::Watchdog,
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex, pubsub::PubSubChannel};
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex,
+    pubsub::{PubSubChannel, Subscriber},
+};
 use futures::StreamExt;
 use nrf52832_pac as pac;
 use static_cell::StaticCell;
 
-/// TODO: Maybe add an Error Channel, used to report errors from different modules?
-/// We use channels to transmit data packets between modules.
-/// A pub-sub transmit channel with 3 queue items, 2 subscribers and 1 publisher.
-/// Sends data to the user
-static TX_CHANNEL: PubSubChannel<ThreadModeRawMutex, CommPacket, 3, 2, 1> = PubSubChannel::new();
 /// A pub-sub receive channel with 3 queue items, 2 subscribers and 1 publisher.
 /// Received data from the user
 static RX_CHANNEL: PubSubChannel<ThreadModeRawMutex, Result<CommPacket, CommError>, 3, 2, 1> =
     PubSubChannel::new();
-/// DFU ongoing. Used to make sure I don't send data while DFU is taking place somewhere else.
-static DFU_ONGOING: Mutex<ThreadModeRawMutex, u8> = Mutex::new(0);
+/// Send commands to different parts of the program.
+static CTRL_CHANNEL: PubSubChannel<ThreadModeRawMutex, DispatcherCommand, 5, 3, 1> =
+    PubSubChannel::new();
+
+static DISPATCHER: PacketDispatcher = PacketDispatcher {
+    rx_channel: &RX_CHANNEL,
+    ctrl_channel: &CTRL_CHANNEL,
+};
+
+#[derive(Clone)]
+enum DispatcherCommand {
+    Receive(Duration),
+    Send(CommPacket),
+}
+
+struct PacketDispatcher {
+    rx_channel: &'static PubSubChannel<ThreadModeRawMutex, Result<CommPacket, CommError>, 3, 2, 1>,
+    ctrl_channel: &'static PubSubChannel<ThreadModeRawMutex, DispatcherCommand, 5, 3, 1>,
+}
+
+impl PacketDispatcher {
+    async fn send_packet(&self, packet: CommPacket) {
+        self.ctrl_channel
+            .publisher()
+            .unwrap()
+            .publish(DispatcherCommand::Send(packet))
+            .await;
+    }
+
+    async fn receive_with_timeout(
+        &self,
+        timeout: Option<Duration>,
+    ) -> Result<CommPacket, CommError> {
+        info!("Sent receive command");
+        // Publish the command, then wait.
+        self.ctrl_channel
+            .publisher()
+            .unwrap()
+            .publish(DispatcherCommand::Receive(timeout.unwrap_or(Duration::MAX)))
+            .await;
+
+        let mut rx_channel = self.rx_channel.subscriber().unwrap();
+        let packet = rx_channel.next_message_pure().await;
+
+        packet
+    }
+
+    async fn await_command(&self) -> DispatcherCommand {
+        info!("Awaiting command...");
+        let command = self.ctrl_channel.subscriber().unwrap().next_message().await;
+        match command {
+            embassy_sync::pubsub::WaitResult::Lagged(_) => panic!("AAAAAAH"),
+            embassy_sync::pubsub::WaitResult::Message(command) => info!("Received a command"),
+        }
+
+        DispatcherCommand::Receive(Duration::MAX)
+        // command
+    }
+}
 
 /// I need to create a custom executor to patch some very specific hardware bugs found on nRF52832.
 static EXECUTOR: StaticCell<custom_executor::Executor> = StaticCell::new();
@@ -51,12 +108,11 @@ struct RgbPins {
     pin_blue: AnyPin,
 }
 
-pub struct LowPowerPeripherals {
+pub struct ApplicationPeripherals {
     pin_sda: AnyPin,
     pin_scl: AnyPin,
     pin_probe_en: AnyPin,
     pin_probe_detect: AnyPin,
-    pin_adc: saadc::AnyInput,
     pin_freq_in: AnyPin,
     saadc: peripherals::SAADC,
     twim: peripherals::TWISPI0,
@@ -66,7 +122,6 @@ pub struct LowPowerPeripherals {
 
 pub struct HighPowerPeripherals {
     pin_chg_detect: AnyPin,
-    pin_plug_detect: AnyPin,
     pins_rgb: RgbPins,
     pwm_rgb: peripherals::PWM0,
     uart: peripherals::UARTE0,
@@ -182,12 +237,13 @@ async fn main_task() {
     // // }
 
     let flash = nrf_softdevice::Flash::take(sd);
-    let lp_peripherals = LowPowerPeripherals {
+
+    // These peripherals are always used.
+    let app_peripherals = ApplicationPeripherals {
         pin_sda: p.P0_14.degrade(),
         pin_scl: p.P0_15.degrade(),
-        pin_probe_en: p.P0_06.degrade(),
+        pin_probe_en: p.P0_11.degrade(),
         pin_probe_detect: p.P0_20.degrade(),
-        pin_adc: p.P0_03.into(),
         pin_freq_in: p.P0_19.degrade(),
         saadc: p.SAADC,
         twim: p.TWISPI0,
@@ -195,21 +251,28 @@ async fn main_task() {
         ppi_ch: p.PPI_CH0,
     };
 
-    let hp_peripherals = HighPowerPeripherals {
-        pin_chg_detect: p.P0_29.degrade(),
-        pin_plug_detect: p.P0_31.degrade(),
-        pins_rgb: RgbPins {
-            pin_red: p.P0_22.degrade(),
-            pin_green: p.P0_23.degrade(),
-            pin_blue: p.P0_24.degrade(),
-        },
-        pwm_rgb: p.PWM0,
-        uart: p.UARTE0,
-        pin_uart_tx: p.P0_26.degrade(),
-        pin_uart_rx: p.P0_25.degrade(),
-    };
+    // These peripherals are used only while in High-Power mode.
+    // let hp_peripherals = HighPowerPeripherals {
+    //     pin_chg_detect: p.P0_29.degrade(),
+    //     pins_rgb: RgbPins {
+    //         pin_red: p.P0_22.degrade(),
+    //         pin_green: p.P0_23.degrade(),
+    //         pin_blue: p.P0_24.degrade(),
+    //     },
+    //     pwm_rgb: p.PWM0,
+    // };
 
-    spawner.must_spawn(tasks::app::application_task(lp_peripherals, hp_peripherals));
+    let subscriber1 = CTRL_CHANNEL.subscriber().unwrap();
+
+    spawner.must_spawn(tasks::app::power_state_task(p.P0_31.degrade()));
+    // spawner.must_spawn(tasks::serial::serial_task(
+    //     p.UARTE0,
+    //     p.P0_26.degrade(),
+    //     p.P0_25.degrade(),
+    //     subscriber1,
+    // ));
+    // spawner.must_spawn(tasks::app::high_power_task(hp_peripherals));
+    spawner.must_spawn(tasks::app::application_task(app_peripherals));
     spawner.must_spawn(tasks::dfu_task::dfu_task(flash));
     spawner.must_spawn(watchdog_task(p.WDT));
 
