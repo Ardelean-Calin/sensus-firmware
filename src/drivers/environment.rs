@@ -22,8 +22,7 @@ pub struct EnvironmentData {
 impl EnvironmentData {
     fn new(sht_data: SHTC3Result, ltr_data: LTR303Result) -> Self {
         EnvironmentData {
-            air_temperature: (((sht_data.temperature.as_millidegrees_celsius() - 1500) / 10i32)
-                as i16),
+            air_temperature: (((sht_data.temperature.as_millidegrees_celsius()) / 10i32) as i16),
             air_humidity: ((sht_data.humidity.as_millipercent() / 10u32) as u16),
             illuminance: ltr_data.lux,
         }
