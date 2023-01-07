@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tmp1x2::marker::mode::Continuous;
 
 /* Constants */
-static PROBE_STARTUP_TIME: Duration = Duration::from_millis(2);
+static PROBE_STARTUP_TIME: Duration = Duration::from_millis(20);
 static TMP_MAX_CONV_TIME: Duration = Duration::from_millis(35);
 
 #[derive(Format, Clone, Default, Serialize, Deserialize)]
@@ -80,7 +80,6 @@ where
     }
 
     /// Triggers an asynchronous sampling of soil moisture and soil temperature and returns the result.
-    /// TODO: Unfortunately, I take ownership of self and never return it back. I am not experienced enough to fix this for now.
     pub async fn sample(&mut self) -> Result<ProbeData, ProbeError> {
         // Check if probe is connected. Return error if it is not.
         self.check_connection()?;

@@ -1,7 +1,8 @@
 use defmt::info;
 
 use embassy_nrf::gpio::AnyPin;
-use embassy_nrf::interrupt::UARTE0_UART0;
+use embassy_nrf::interrupt;
+use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::peripherals;
 use embassy_nrf::uarte;
 
@@ -16,9 +17,11 @@ pub async fn serial_task(
     mut instance: peripherals::UARTE0,
     mut pin_tx: AnyPin,
     mut pin_rx: AnyPin,
-    mut uart_irq: UARTE0_UART0,
 ) {
     run_while_guard!(POWER_DETECT, async {
+        // Configure UART
+        let mut uart_irq = interrupt::take!(UARTE0_UART0);
+        uart_irq.set_priority(interrupt::Priority::P7);
         info!("UART task started!");
         // UART-related
         let mut config = uarte::Config::default();

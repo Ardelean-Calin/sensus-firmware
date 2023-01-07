@@ -181,16 +181,6 @@ pub fn configure_nfc_pins_as_gpio() {
     }
 }
 
-async fn my_task(params: u32) {
-    let mut i: u32 = params;
-    defmt::info!("Hey there!");
-    loop {
-        i += 1;
-        Timer::after(Duration::from_millis(10)).await;
-        defmt::info!("{:?}", i);
-    }
-}
-
 #[embassy_executor::task]
 async fn main_task() {
     let spawner = Spawner::for_current_executor().await;
@@ -230,9 +220,6 @@ async fn main_task() {
         gpiote_ch: p.GPIOTE_CH0,
         ppi_ch: p.PPI_CH0,
     };
-    // Configure UART
-    let uart_irq = interrupt::take!(UARTE0_UART0);
-    uart_irq.set_priority(interrupt::Priority::P7);
 
     // Enable the softdevice.
     let (sd, server) = ble::configure_ble();
@@ -246,7 +233,6 @@ async fn main_task() {
         p.UARTE0,
         p.P0_03.degrade(),
         p.P0_02.degrade(),
-        uart_irq,
     ));
     spawner.must_spawn(tasks::app::application_task(app_peripherals));
     spawner.must_spawn(tasks::dfu_task::dfu_task(flash));
