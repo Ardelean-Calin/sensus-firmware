@@ -13,7 +13,7 @@ mod tasks;
 mod types;
 
 use async_guard::AsyncGuard;
-use embassy_time::{Duration, Timer};
+use embassy_time::Duration;
 use types::*;
 
 mod custom_executor;
@@ -25,7 +25,6 @@ use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_nrf::{
     gpio::{AnyPin, Input, Pin, Pull},
-    interrupt::{self, InterruptExt},
     nvmc::Nvmc,
     peripherals,
     wdt::Watchdog,

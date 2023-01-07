@@ -18,10 +18,11 @@ pub async fn serial_task(
     mut pin_tx: AnyPin,
     mut pin_rx: AnyPin,
 ) {
+    // Configure UART
+    let mut uart_irq = interrupt::take!(UARTE0_UART0);
+    uart_irq.set_priority(interrupt::Priority::P7);
+
     run_while_guard!(POWER_DETECT, async {
-        // Configure UART
-        let mut uart_irq = interrupt::take!(UARTE0_UART0);
-        uart_irq.set_priority(interrupt::Priority::P7);
         info!("UART task started!");
         // UART-related
         let mut config = uarte::Config::default();
