@@ -200,17 +200,6 @@ async fn main_task() {
     // to datasheet.
     configure_reset_pin();
 
-    // If we got here, it means that this application works. We indicate that to the bootloader.
-    // TODO: I can make this more complex and, for example, only mark OK if I got a BLE connection...
-    // As per tutorial, I need to make sure that:
-    // Your application is running correctly before marking itself as successfully booted.
-    // Doing this too early could cause your application to be stuck with the new faulty firmware.
-    // For IoT connected devices, there is an additional trick: make sure you can connect to
-    // the required services (such as the firmware update service) before marking the firmware
-    // as successfully booted.
-    // let mut updater = FirmwareUpdater::default();
-    // updater.mark_booted(&mut flash).await;
-
     // Main application task.
     let mut config = embassy_nrf::config::Config::default();
     // NOTE: Do not enable Xtal. It is used by the S112. The SoftDevice powers the crystal
@@ -251,6 +240,7 @@ async fn main_task() {
     let flash = nrf_softdevice::Flash::take(sd);
 
     // Spawn all the used tasks.
+    spawner.must_spawn(watchdog_task(p.WDT)); // This has to be the first one.
     spawner.must_spawn(ble::softdevice_task(sd));
     spawner.must_spawn(serial::tasks::serial_task(
         p.UARTE0,
@@ -268,7 +258,6 @@ async fn main_task() {
         p.P0_27.degrade(),
     ));
     spawner.must_spawn(power_state_task(p.P0_04.degrade()));
-    spawner.must_spawn(watchdog_task(p.WDT));
 
     // Should await forever.
     ble::run_ble_application(sd, &server).await;
