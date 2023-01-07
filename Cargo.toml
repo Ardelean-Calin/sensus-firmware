@@ -73,6 +73,8 @@ embedded-hal = "0.2.7"
 panic-persist = { version = "0.3.0", features = ["min-panic"] }
 serde = { version = "1.0.*", default-features = false }
 postcard = "1.0.2"
+# My libraries
+async-guard = { version = "0.1.0", path = "async-guard" }
 
 [patch.crates-io]
 nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }

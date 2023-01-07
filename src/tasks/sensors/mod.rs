@@ -4,7 +4,7 @@ use futures::{future::join3, pin_mut};
 pub mod types;
 use types::*;
 
-use crate::drivers::{
+use crate::sensors::{
     battery_sensor::BatterySensor, environment::EnvironmentSensors, soil_sensor::SoilSensor,
 };
 

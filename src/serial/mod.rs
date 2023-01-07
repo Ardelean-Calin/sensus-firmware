@@ -1,18 +1,11 @@
 use core::ops::DerefMut;
 
-use defmt::info;
 use defmt::warn;
-use embassy_nrf::gpio::AnyPin;
-use embassy_nrf::interrupt;
-use embassy_nrf::interrupt::InterruptExt;
-use embassy_nrf::peripherals;
 use embassy_nrf::peripherals::UARTE0;
-use embassy_nrf::uarte;
 use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::uarte::UarteTx;
 use embassy_time::Duration;
 use embassy_time::Timer;
-use futures::future::join;
 use futures::future::select;
 use futures::pin_mut;
 use heapless::Vec;
@@ -20,10 +13,9 @@ use postcard::{from_bytes_cobs, to_slice_cobs};
 
 use crate::types::CommError;
 use crate::types::CommPacket;
-use crate::PacketDispatcher;
-use crate::CTRL_CHANNEL;
-use crate::DISPATCHER;
-use crate::RX_CHANNEL;
+
+pub mod tasks;
+pub(crate) use tasks::serial_task;
 
 #[derive(Debug)]
 enum UartError {
@@ -91,34 +83,4 @@ async fn send_packet(tx: &mut UarteTx<'_, UARTE0>, packet: CommPacket) -> Result
     tx.write(tx_buf).await.map_err(|_| UartError::TxError)?;
 
     Ok(())
-}
-
-pub async fn serial_task(
-    instance: &mut peripherals::UARTE0,
-    pin_tx: &mut AnyPin,
-    pin_rx: &mut AnyPin,
-) {
-    info!("UART task started!");
-    // UART-related
-    let uart_irq = interrupt::take!(UARTE0_UART0);
-    uart_irq.set_priority(interrupt::Priority::P7);
-    let mut config = uarte::Config::default();
-    config.parity = uarte::Parity::EXCLUDED;
-    config.baudrate = uarte::Baudrate::BAUD115200;
-
-    let uart = uarte::Uarte::new(instance, uart_irq, pin_rx, pin_tx, config);
-    let (mut tx, mut rx) = uart.split();
-
-    loop {
-        match DISPATCHER.await_command().await {
-            crate::DispatcherCommand::Receive(timeout) => {
-                info!("Waiting for receiving...");
-                let packet = recv_packet(&mut rx, timeout).await;
-                RX_CHANNEL.immediate_publisher().publish_immediate(packet);
-            }
-            crate::DispatcherCommand::Send(packet) => {
-                let _ = send_packet(&mut tx, packet).await;
-            }
-        }
-    }
 }

@@ -9,28 +9,22 @@ use embassy_nrf::{
     interrupt::{self},
     peripherals::{self, GPIOTE_CH0, PPI_CH0, TWISPI0},
     ppi::Ppi,
-    pwm::SimplePwm,
     saadc::{self, Saadc},
     timerv2::{self, CounterType, TimerType},
     twim::{self, Twim},
     Peripheral,
 };
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
 use embassy_sync::pubsub::PubSubChannel;
 use embassy_time::{Duration, Ticker};
 
-use futures::{
-    future::{join, select},
-    pin_mut, StreamExt,
-};
+use futures::StreamExt;
 use shared_bus::{BusManager, NullMutex};
 
 use ltr303_async::{self};
 use shtc3_async::{self};
 
 use crate::ApplicationPeripherals;
-use crate::HighPowerPeripherals;
 
 use super::sensors;
 
@@ -42,37 +36,6 @@ pub static SENSOR_DATA_BUS: PubSubChannel<ThreadModeRawMutex, sensors::types::Da
 static MEAS_INTERVAL: Duration = Duration::from_millis(3000); // TODO: have a default val but change via BLE
 #[cfg(not(debug_assertions))]
 static MEAS_INTERVAL: Duration = Duration::from_secs(30);
-
-#[derive(PartialEq)]
-enum PowerMode {
-    LowPower,
-    HighPower,
-}
-
-static CHANNEL: Channel<ThreadModeRawMutex, PowerMode, 1> = Channel::new();
-
-struct PowerModeDetect {}
-
-impl PowerModeDetect {
-    fn new() -> Self {
-        PowerModeDetect {}
-    }
-
-    async fn wait_for(&self, power_mode: PowerMode) {
-        loop {
-            let mode = CHANNEL.recv().await;
-            if mode == power_mode {
-                break;
-            }
-        }
-    }
-    async fn wait_for_high_power() {
-        PowerModeDetect::new().wait_for(PowerMode::HighPower).await;
-    }
-    async fn wait_for_low_power() {
-        PowerModeDetect::new().wait_for(PowerMode::LowPower).await;
-    }
-}
 
 // Data we get from main PCB:
 //  2 bytes for battery voltage  => u16; unit: mV
@@ -190,75 +153,6 @@ where
     }
 }
 
-// async fn run_high_power(&mut pwm, &mut pin_red, &mut pin_green, &mut pin_blue, &mut charging_input) {
-async fn monitor_charging(
-    charging_detect: &mut Input<'_, impl Pin>,
-    pwm: &mut SimplePwm<'_, peripherals::PWM0>,
-) {
-    // info!("This task runs only when plugged in!");
-    // If charging, show a green LED.
-    loop {
-        if charging_detect.is_high() {
-            pwm.set_duty(0, 0);
-            pwm.set_duty(1, 0);
-            pwm.set_duty(2, 0);
-            charging_detect.wait_for_low().await;
-        } else {
-            pwm.set_duty(0, 0);
-            pwm.set_duty(1, 255);
-            pwm.set_duty(2, 0);
-            charging_detect.wait_for_high().await
-        }
-    }
-}
-
-async fn run_high_power(mut peripherals: HighPowerPeripherals) {
-    let mut charging_detect = Input::new(peripherals.pin_chg_detect, Pull::Up);
-    loop {
-        // Wait for Plantbuddy to be plugged in. High power peripherals are uninitialized until I plug in
-        PowerModeDetect::wait_for_high_power().await;
-        // Theoretically, the peripherals initialized in the previous loop will be dropped at the end of the loop.
-        info!("Plantbuddy plugged in!");
-        let mut rgbled = SimplePwm::new_3ch(
-            &mut peripherals.pwm_rgb,
-            &mut peripherals.pins_rgb.pin_red,
-            &mut peripherals.pins_rgb.pin_green,
-            &mut peripherals.pins_rgb.pin_blue,
-        );
-        rgbled.set_max_duty(255);
-        // After plugged in, run the high-power coroutine
-        let charging_monitor_fut = monitor_charging(&mut charging_detect, &mut rgbled);
-        pin_mut!(charging_monitor_fut);
-        let usb_comm_fut = super::serial::serial_task(
-            &mut peripherals.uart,
-            &mut peripherals.pin_uart_tx,
-            &mut peripherals.pin_uart_rx,
-        );
-        let plugged_out_fut = PowerModeDetect::wait_for_low_power();
-        pin_mut!(plugged_out_fut);
-
-        // Create a high power future. This one runs only when plugged in and only UNTIL plugged in.
-        let high_power_fut = join(charging_monitor_fut, usb_comm_fut);
-        pin_mut!(high_power_fut);
-
-        // This will run the high power task only while PB is plugged in. If it gets plugged out,
-        // the high power task gets dropped.
-        select(high_power_fut, plugged_out_fut).await;
-    }
-}
-
-/// This task runs only when in low-power mode.
-#[embassy_executor::task]
-pub async fn low_power_task(app_peripherals: ApplicationPeripherals) {
-    // run_low_power(app_peripherals).await;
-}
-
-/// This task runs only when in high-power mode.
-#[embassy_executor::task]
-pub async fn high_power_task(hp_peripherals: HighPowerPeripherals) {
-    run_high_power(hp_peripherals).await;
-}
-
 /// This task runs always. Independent of power mode.
 #[embassy_executor::task]
 pub async fn application_task(mut peripherals: ApplicationPeripherals) {
@@ -293,19 +187,5 @@ pub async fn application_task(mut peripherals: ApplicationPeripherals) {
             // Try three times... Afterwards report error and sleep. TODO.
             warn!("Error sampling sensor.");
         };
-    }
-}
-
-/// Monitors the plugged-in state and publishes a global state that can be used by other tasks
-/// to only run when plugged in or plugged out.
-#[embassy_executor::task]
-pub async fn power_state_task(plugged_in_pin: AnyPin) {
-    let mut plugged_detect = Input::new(plugged_in_pin, Pull::Up);
-    // By default, we are in low-power state.
-    loop {
-        plugged_detect.wait_for_low().await;
-        CHANNEL.send(PowerMode::HighPower).await;
-        plugged_detect.wait_for_high().await;
-        CHANNEL.send(PowerMode::LowPower).await;
     }
 }

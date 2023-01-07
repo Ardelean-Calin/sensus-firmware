@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Format, Clone, Serialize, Deserialize)]
 pub struct DataPacket {
     pub battery_voltage: u16, // unit: mV
-    pub env_data: crate::drivers::environment::EnvironmentData,
-    pub probe_data: crate::drivers::soil_sensor::ProbeData,
+    pub env_data: crate::sensors::environment::EnvironmentData,
+    pub probe_data: crate::sensors::soil_sensor::ProbeData,
 }
 
 impl DataPacket {

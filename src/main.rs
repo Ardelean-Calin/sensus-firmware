@@ -2,16 +2,18 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 #![feature(future_join)]
-#![feature(async_fn_in_trait)]
 
 mod ble;
-mod drivers;
 mod error;
 mod prelude;
+mod rgb;
+mod sensors;
+mod serial;
 mod tasks;
 mod types;
 
-use embassy_time::Duration;
+use async_guard::AsyncGuard;
+use embassy_time::{Duration, Timer};
 use types::*;
 
 mod custom_executor;
@@ -22,14 +24,14 @@ use embassy_boot_nrf::FirmwareUpdater;
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_nrf::{
-    gpio::{AnyPin, Pin},
+    gpio::{AnyPin, Input, Pin, Pull},
+    interrupt::{self, InterruptExt},
     nvmc::Nvmc,
-    peripherals, saadc,
+    peripherals,
     wdt::Watchdog,
 };
 use embassy_sync::{
-    blocking_mutex::raw::ThreadModeRawMutex,
-    pubsub::{PubSubChannel, Subscriber},
+    blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, pubsub::PubSubChannel,
 };
 use futures::StreamExt;
 use nrf52832_pac as pac;
@@ -47,6 +49,11 @@ static DISPATCHER: PacketDispatcher = PacketDispatcher {
     rx_channel: &RX_CHANNEL,
     ctrl_channel: &CTRL_CHANNEL,
 };
+
+static RGB_ROUTER: Channel<ThreadModeRawMutex, rgb::RGBTransition, 1> = Channel::new();
+
+// This asynchronous guard monitors the state of the GPIO pin indicating
+static POWER_DETECT: AsyncGuard = AsyncGuard::new();
 
 #[derive(Clone)]
 enum DispatcherCommand {
@@ -102,12 +109,6 @@ impl PacketDispatcher {
 /// I need to create a custom executor to patch some very specific hardware bugs found on nRF52832.
 static EXECUTOR: StaticCell<custom_executor::Executor> = StaticCell::new();
 
-struct RgbPins {
-    pin_red: AnyPin,
-    pin_green: AnyPin,
-    pin_blue: AnyPin,
-}
-
 pub struct ApplicationPeripherals {
     pin_sda: AnyPin,
     pin_scl: AnyPin,
@@ -118,15 +119,6 @@ pub struct ApplicationPeripherals {
     twim: peripherals::TWISPI0,
     gpiote_ch: peripherals::GPIOTE_CH0,
     ppi_ch: peripherals::PPI_CH0,
-}
-
-pub struct HighPowerPeripherals {
-    pin_chg_detect: AnyPin,
-    pins_rgb: RgbPins,
-    pwm_rgb: peripherals::PWM0,
-    uart: peripherals::UARTE0,
-    pin_uart_tx: AnyPin,
-    pin_uart_rx: AnyPin,
 }
 
 // Reconfigure UICR to enable reset pin if required (resets if changed).
@@ -189,6 +181,16 @@ pub fn configure_nfc_pins_as_gpio() {
     }
 }
 
+async fn my_task(params: u32) {
+    let mut i: u32 = params;
+    defmt::info!("Hey there!");
+    loop {
+        i += 1;
+        Timer::after(Duration::from_millis(10)).await;
+        defmt::info!("{:?}", i);
+    }
+}
+
 #[embassy_executor::task]
 async fn main_task() {
     let spawner = Spawner::for_current_executor().await;
@@ -224,19 +226,8 @@ async fn main_task() {
     let mut flash = BlockingAsync::new(nvmc);
     let mut updater = FirmwareUpdater::default();
     let mut magic = [0; 4];
-    updater.mark_booted(&mut flash, &mut magic).await;
-
-    // Enable the softdevice.
-    let (sd, server) = ble::configure_ble();
-    spawner.must_spawn(ble::softdevice_task(sd));
-
-    // // #[cfg(not(debug_assertions))]
-    // // if let Some(msg) = get_panic_message_bytes() {
-    // //    How about if I have some panic message, I turn on the red LED if plugged in?
-    // //     board.uart.write(msg);
-    // // }
-
-    let flash = nrf_softdevice::Flash::take(sd);
+    // TODO: Move to another place. Somewhere where if we got here, it is sure that the firmware is working.
+    let _ = updater.mark_booted(&mut flash, &mut magic).await;
 
     // These peripherals are always used.
     let app_peripherals = ApplicationPeripherals {
@@ -250,34 +241,48 @@ async fn main_task() {
         gpiote_ch: p.GPIOTE_CH0,
         ppi_ch: p.PPI_CH0,
     };
+    // Configure UART
+    let uart_irq = interrupt::take!(UARTE0_UART0);
+    uart_irq.set_priority(interrupt::Priority::P7);
 
-    // These peripherals are used only while in High-Power mode.
-    // let hp_peripherals = HighPowerPeripherals {
-    //     pin_chg_detect: p.P0_29.degrade(),
-    //     pins_rgb: RgbPins {
-    //         pin_red: p.P0_22.degrade(),
-    //         pin_green: p.P0_23.degrade(),
-    //         pin_blue: p.P0_24.degrade(),
-    //     },
-    //     pwm_rgb: p.PWM0,
-    // };
+    // Enable the softdevice.
+    let (sd, server) = ble::configure_ble();
+    // And get the flash controller
+    let flash = nrf_softdevice::Flash::take(sd);
 
-    let subscriber1 = CTRL_CHANNEL.subscriber().unwrap();
-
-    spawner.must_spawn(tasks::app::power_state_task(p.P0_31.degrade()));
-    // spawner.must_spawn(tasks::serial::serial_task(
-    //     p.UARTE0,
-    //     p.P0_26.degrade(),
-    //     p.P0_25.degrade(),
-    //     subscriber1,
-    // ));
-    // spawner.must_spawn(tasks::app::high_power_task(hp_peripherals));
+    // Spawn all the used tasks.
+    spawner.must_spawn(ble::softdevice_task(sd));
+    spawner.must_spawn(serial::tasks::serial_task(
+        p.UARTE0,
+        p.P0_03.degrade(),
+        p.P0_02.degrade(),
+        uart_irq,
+    ));
     spawner.must_spawn(tasks::app::application_task(app_peripherals));
     spawner.must_spawn(tasks::dfu_task::dfu_task(flash));
+    spawner.must_spawn(rgb::tasks::heartbeat_task());
+    spawner.must_spawn(rgb::tasks::rgb_task(
+        p.PWM0,
+        p.P0_28.degrade(),
+        p.P0_26.degrade(),
+        p.P0_27.degrade(),
+    ));
+    spawner.must_spawn(power_state_task(p.P0_04.degrade()));
     spawner.must_spawn(watchdog_task(p.WDT));
 
     // Should await forever.
     ble::run_ble_application(sd, &server).await;
+}
+
+#[embassy_executor::task]
+async fn power_state_task(monitor_pin: AnyPin) {
+    let mut plugged_detect = Input::new(monitor_pin, Pull::Down);
+    loop {
+        plugged_detect.wait_for_high().await;
+        POWER_DETECT.ready(true);
+        plugged_detect.wait_for_low().await;
+        POWER_DETECT.ready(false);
+    }
 }
 
 #[embassy_executor::task]
@@ -290,8 +295,7 @@ async fn watchdog_task(wdt: peripherals::WDT) {
     let (_wdt, [mut handle]) = match Watchdog::try_new(wdt, wdt_config) {
         Ok(x) => x,
         Err(_) => {
-            info!("Watchdog already active with wrong config, waiting for it to timeout...");
-            loop {}
+            panic!("Watchdog already active with wrong config, waiting for it to timeout...");
         }
     };
 
