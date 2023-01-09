@@ -1,0 +1,41 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: recursive
+    - uses: actions-rs/toolchain@v1.0.6
+      with:
+        toolchain: nightly-2022-11-22
+        override: true
+        target: thumbv7em-none-eabihf
+        components: llvm-tools-preview
+    - run: rustup target add thumbv7em-none-eabihf
+    - run: cargo install cargo-binutils
+    - run: cargo build --release
+    - run: cargo objcopy --bin plantbuddy-fw --release --target thumbv7em-none-eabihf -- -O ihex plantbuddy.hex
+    - name: Create Release 
+      uses: actions/create-release@v1
+      id: create_release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        body: |
+          This release contains the hex file for the commit ${{ github.sha }}
+    - uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./
+        asset_name: plantbuddy.hex
