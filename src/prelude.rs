@@ -8,14 +8,17 @@ use panic_persist as _; // panic handler that logs error into RAM, then soft-res
 #[cfg(debug_assertions)]
 use panic_probe as _;
 
-macro_rules! run_while_guard {
+macro_rules! run_while_plugged_in {
     ($guard:expr, $task:expr) => {{
         async move {
+            let mut _sub_plugged_in = $guard.plugged_in.subscriber().unwrap();
+            let mut _sub_plugged_out = $guard.plugged_out.subscriber().unwrap();
             loop {
                 let task = $task;
-                let guard_enter = ($guard).is_true();
-                let guard_leave = ($guard).is_false();
                 futures::pin_mut!(task);
+
+                let guard_enter = _sub_plugged_in.next_message_pure();
+                let guard_leave = _sub_plugged_out.next_message_pure();
                 futures::pin_mut!(guard_enter);
                 futures::pin_mut!(guard_leave);
                 // Wait for the guard to enter our context

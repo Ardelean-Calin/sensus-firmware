@@ -30,7 +30,9 @@ use embassy_nrf::{
     wdt::Watchdog,
 };
 use embassy_sync::{
-    blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, pubsub::PubSubChannel,
+    blocking_mutex::raw::ThreadModeRawMutex,
+    channel::Channel,
+    pubsub::{publisher, PubSubChannel},
 };
 use futures::StreamExt;
 use nrf52832_pac as pac;
@@ -51,8 +53,15 @@ static DISPATCHER: PacketDispatcher = PacketDispatcher {
 
 static RGB_ROUTER: Channel<ThreadModeRawMutex, rgb::RGBTransition, 1> = Channel::new();
 
-// This asynchronous guard monitors the state of the GPIO pin indicating
-static POWER_DETECT: AsyncGuard = AsyncGuard::new();
+struct PowerDetect {
+    plugged_in: PubSubChannel<ThreadModeRawMutex, bool, 1, 2, 1>,
+    plugged_out: PubSubChannel<ThreadModeRawMutex, bool, 1, 2, 1>,
+}
+
+static PLUGGED_DETECT: PowerDetect = PowerDetect {
+    plugged_in: PubSubChannel::new(),
+    plugged_out: PubSubChannel::new(),
+};
 
 #[derive(Clone)]
 enum DispatcherCommand {
@@ -205,7 +214,7 @@ async fn main_task() {
     let mut updater = FirmwareUpdater::default();
     let mut magic = [0; 4];
     // TODO: Move to another place. Somewhere where if we got here, it is sure that the firmware is working.
-    let _ = updater.mark_booted(&mut flash, &mut magic).await;
+    // let _ = updater.mark_booted(&mut flash, &mut magic).await;
 
     // These peripherals are always used.
     let app_peripherals = ApplicationPeripherals {
@@ -220,6 +229,9 @@ async fn main_task() {
         ppi_ch: p.PPI_CH0,
     };
 
+    // TODO: Enter a protection mode when battery voltage is below 2V? Or maybe I just let it die peacefully...?
+    // For sure, however, is that below 2.4V I need to disable the LTR303-ALS (or switch to OPT3001)
+
     // Enable the softdevice.
     let (sd, server) = ble::configure_ble();
     // And get the flash controller
@@ -228,6 +240,9 @@ async fn main_task() {
     // Spawn all the used tasks.
     spawner.must_spawn(watchdog_task(p.WDT)); // This has to be the first one.
     spawner.must_spawn(ble::softdevice_task(sd));
+    // Needs to be created before high power tasks because the executor appearently starts tasks from bottom
+    // to top. So power_state_task, which creates a publisher, needs to run after the subscribers were created.
+    spawner.must_spawn(power_state_task(p.P0_04.degrade()));
     spawner.must_spawn(serial::tasks::serial_task(
         p.UARTE0,
         p.P0_03.degrade(),
@@ -242,8 +257,6 @@ async fn main_task() {
         p.P0_26.degrade(),
         p.P0_27.degrade(),
     ));
-    spawner.must_spawn(power_state_task(p.P0_04.degrade()));
-
     // Should await forever.
     ble::run_ble_application(sd, &server).await;
 }
@@ -253,9 +266,21 @@ async fn power_state_task(monitor_pin: AnyPin) {
     let mut plugged_detect = Input::new(monitor_pin, Pull::Down);
     loop {
         plugged_detect.wait_for_high().await;
-        POWER_DETECT.ready(true);
+        info!("Plugged in");
+        PLUGGED_DETECT
+            .plugged_in
+            .publisher()
+            .unwrap()
+            .publish(true)
+            .await;
         plugged_detect.wait_for_low().await;
-        POWER_DETECT.ready(false);
+        info!("Plugged out");
+        PLUGGED_DETECT
+            .plugged_out
+            .publisher()
+            .unwrap()
+            .publish(true)
+            .await;
     }
 }
 

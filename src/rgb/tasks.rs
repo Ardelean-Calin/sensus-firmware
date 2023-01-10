@@ -1,8 +1,9 @@
+use defmt::info;
 use embassy_nrf::{gpio::AnyPin, peripherals::PWM0, pwm::SimplePwm};
 use embassy_time::{Duration, Timer};
 
 use super::types::{RGBColor, RGBTransition};
-use crate::{POWER_DETECT, RGB_ROUTER};
+use crate::{PLUGGED_DETECT, RGB_ROUTER};
 
 const MAX_DUTY: u16 = 4095;
 const TIMESTEP_MS: u64 = 10;
@@ -14,7 +15,9 @@ pub async fn rgb_task(
     mut pin_green: AnyPin,
     mut pin_blue: AnyPin,
 ) {
-    run_while_guard!(POWER_DETECT, async {
+    info!("rgb_task task created.");
+    run_while_plugged_in!(PLUGGED_DETECT, async {
+        defmt::warn!("RGB task started");
         let mut current_color = RGBColor::default();
         let mut mypwm = SimplePwm::new_3ch(&mut pwm, &mut pin_red, &mut pin_green, &mut pin_blue);
         mypwm.set_max_duty(MAX_DUTY);
@@ -39,6 +42,7 @@ pub async fn rgb_task(
 
 #[embassy_executor::task]
 pub async fn heartbeat_task() {
+    info!("Heartbeat task created.");
     loop {
         // This channel has a capacity of 1, so it blocks until the RGBTransition is taken and consumed.
         RGB_ROUTER

@@ -111,7 +111,7 @@ where
 
         // I2C initialization
         let mut i2c_config = twim::Config::default();
-        i2c_config.frequency = twim::Frequency::K100; // 400k seems to be best for low power consumption.
+        i2c_config.frequency = twim::Frequency::K100; // 100k seems to be best for low power consumption.
         i2c_config.scl_pullup = true;
         i2c_config.sda_pullup = true;
 

@@ -47,9 +47,10 @@
             ],
             "device": "nrf52832_xxAA",
             "searchDir": [],
-            "runToEntryPoint": "main",
+            // "runToEntryPoint": "main",
             "showDevDebugOutput": "none",
             "gdbTarget": ":3333",
+            "armToolchainPath": "/opt/gcc-arm-none-eabi-10.3-2021.10/bin"
         },
     ]
 }

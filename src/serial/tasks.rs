@@ -7,7 +7,7 @@ use embassy_nrf::peripherals;
 use embassy_nrf::uarte;
 
 use crate::DISPATCHER;
-use crate::POWER_DETECT;
+use crate::PLUGGED_DETECT;
 use crate::RX_CHANNEL;
 
 use super::{recv_packet, send_packet};
@@ -18,12 +18,13 @@ pub async fn serial_task(
     mut pin_tx: AnyPin,
     mut pin_rx: AnyPin,
 ) {
+    info!("serial task created.");
     // Configure UART
     let mut uart_irq = interrupt::take!(UARTE0_UART0);
     uart_irq.set_priority(interrupt::Priority::P7);
 
-    run_while_guard!(POWER_DETECT, async {
-        info!("UART task started!");
+    run_while_plugged_in!(PLUGGED_DETECT, async {
+        defmt::warn!("UART task started!");
         // UART-related
         let mut config = uarte::Config::default();
         config.parity = uarte::Parity::EXCLUDED;
