@@ -38,4 +38,3 @@ jobs:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./
         asset_name: plantbuddy.hex
-        asset_type: "application/hex"
