@@ -46,10 +46,10 @@ pub async fn heartbeat_task() {
     loop {
         // This channel has a capacity of 1, so it blocks until the RGBTransition is taken and consumed.
         RGB_ROUTER
-            .send(RGBTransition::new(400, (0.0, 0.1, 0.0).into()))
+            .send(RGBTransition::new(1000, (0.0, 0.1, 0.0).into()))
             .await;
         RGB_ROUTER
-            .send(RGBTransition::new(400, (0.0, 0.5, 0.0).into()))
+            .send(RGBTransition::new(1000, (0.0, 0.5, 0.0).into()))
             .await;
     }
 }
