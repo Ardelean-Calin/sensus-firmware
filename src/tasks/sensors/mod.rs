@@ -1,4 +1,6 @@
+use defmt::Format;
 use embassy_nrf::gpio::Pin;
+use embassy_time::with_timeout;
 use futures::{future::join3, pin_mut};
 
 pub mod types;
@@ -10,9 +12,10 @@ use crate::sensors::{
 
 use super::app::Hardware;
 
+#[derive(Format)]
 pub enum SensorError {
     I2CError,
-    ProbeError,
+    TimeoutError,
 }
 
 pub struct Sensors {}
@@ -48,18 +51,21 @@ impl Sensors {
         pin_mut!(batt_fut);
 
         // Sample everything at the same time to save processing time.
-        let (environment_result, probe_result, batt_mv) = join3(env_fut, probe_fut, batt_fut).await;
-        let environment_data = environment_result.map_err(|_| SensorError::I2CError)?;
-        // let probe_data = probe_result.map_err(|_| SensorError::ProbeError)?;
+        let timeout_future = with_timeout(
+            embassy_time::Duration::from_millis(200),
+            join3(env_fut, probe_fut, batt_fut),
+        );
 
-        // I could have some type of field representing invalid data. InvalidData<LastData>. This way, in case
-        // of an error I keep the last received value (or 0 if no value) and just wrap it inside InvalidData
-        // to mark it as being non-valid.
-        Ok(DataPacket {
-            battery_voltage: batt_mv,
-            env_data: environment_data,
-            probe_data: probe_result.unwrap_or_default(),
-        })
+        let res = match timeout_future.await {
+            Ok((environment_result, probe_result, batt_mv)) => Ok(DataPacket {
+                battery_voltage: batt_mv,
+                env_data: environment_result.map_err(|_| SensorError::I2CError)?,
+                probe_data: probe_result.unwrap_or_default(),
+            }),
+            Err(_) => Err(SensorError::TimeoutError),
+        };
+
+        res
         // At the end, all our sensors are dropped since we own Hardware. So all peripherals found there
         // get dropped. That includes i2c, gpio, etc.
     }

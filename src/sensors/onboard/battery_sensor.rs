@@ -1,3 +1,5 @@
+use core::num::TryFromIntError;
+
 use embassy_nrf::saadc::{self, Saadc};
 
 pub struct BatterySensor<'a> {
@@ -9,11 +11,12 @@ impl<'a> BatterySensor<'a> {
         BatterySensor { saadc: adc }
     }
 
-    pub async fn sample_mv(&mut self) -> u16 {
+    pub async fn sample_mv(&mut self) -> Result<u16, TryFromIntError> {
         let mut buf = [0i16; 1];
         self.saadc.calibrate().await;
         self.saadc.sample(&mut buf).await;
         let voltage: u32 = u32::from(buf[0].unsigned_abs()) * 100000 / 113778;
-        voltage as u16
+
+        voltage.try_into()
     }
 }

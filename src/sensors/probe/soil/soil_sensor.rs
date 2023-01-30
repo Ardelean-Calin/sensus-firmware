@@ -6,20 +6,20 @@ use embassy_nrf::{
 use embassy_time::Duration;
 use embassy_time::Timer as SoftwareTimer;
 use embedded_hal::blocking::i2c::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tmp1x2::marker::mode::Continuous;
 
 /* Constants */
 static PROBE_STARTUP_TIME: Duration = Duration::from_millis(20);
 static TMP_MAX_CONV_TIME: Duration = Duration::from_millis(35);
 
-#[derive(Format, Clone, Default, Serialize, Deserialize)]
+#[derive(Format, Clone, Default, Serialize)]
 pub struct ProbeData {
     pub soil_temperature: i16, // unit: 0.01C
     pub soil_moisture: u32,    // unit: Hz
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ProbeError {
     ProbeCommError,
     ProbeNotConnectedError,

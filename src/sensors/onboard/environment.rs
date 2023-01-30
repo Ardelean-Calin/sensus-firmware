@@ -7,6 +7,7 @@ use ltr303_async::{LTR303Result, Ltr303};
 use serde::{Deserialize, Serialize};
 use shtc3_async::{SHTC3Result, Shtc3};
 
+#[derive(Clone)]
 pub enum Error {
     SHTC3Error,
     LTR303Error,

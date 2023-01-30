@@ -7,8 +7,8 @@ use nrf_softdevice::ble::{gatt_server, peripheral, Connection, TxPower};
 use nrf_softdevice::{raw, Softdevice};
 use raw::{sd_power_dcdc_mode_set, NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE};
 
-use crate::tasks::app::SENSOR_DATA_BUS;
-use crate::tasks::sensors::types::DataPacket;
+use crate::sensors::types::DataPacket;
+use crate::SENSOR_DATA_BUS;
 
 use core::mem;
 
@@ -56,10 +56,10 @@ async fn update_gatt(server: &Server, connection: &Connection) {
 pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
-            source: raw::NRF_CLOCK_LF_SRC_RC as u8,
-            rc_ctiv: 16, // Note: shorturl.at/jlvHO
-            rc_temp_ctiv: 2,
-            accuracy: raw::NRF_CLOCK_LF_ACCURACY_500_PPM as u8,
+            source: raw::NRF_CLOCK_LF_SRC_XTAL as u8,
+            rc_ctiv: 0,
+            rc_temp_ctiv: 0,
+            accuracy: raw::NRF_CLOCK_LF_ACCURACY_20_PPM as u8,
         }),
         conn_gap: Some(raw::ble_gap_conn_cfg_t {
             conn_count: 1,
@@ -77,9 +77,9 @@ pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
             _bitfield_1: raw::ble_gap_cfg_role_count_t::new_bitfield_1(0),
         }),
         gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
-            p_value: b"RustyButt" as *const u8 as _,
-            current_len: 9,
-            max_len: 9,
+            p_value: b"Sensus" as *const u8 as _,
+            current_len: 6,
+            max_len: 6,
             write_perm: unsafe { mem::zeroed() },
             _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(
                 raw::BLE_GATTS_VLOC_STACK as u8,
@@ -101,10 +101,11 @@ pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
 }
 
 async fn run_gatt_server<'a>(sd: &'static Softdevice, server: &'a Server, adv_data: &'a [u8]) {
-    let mut config = peripheral::Config::default();
-    // equivalent to 1000ms
-    config.interval = 1600;
-    config.tx_power = TxPower::Plus4dBm;
+    let config = nrf_softdevice::ble::peripheral::Config {
+        interval: 1600, // equivalent to 1000ms
+        tx_power: TxPower::Plus4dBm,
+        ..Default::default()
+    };
 
     let adv = peripheral::ConnectableAdvertisement::ExtendedNonscannableUndirected {
         set_id: 0,
@@ -122,7 +123,7 @@ async fn run_gatt_server<'a>(sd: &'static Softdevice, server: &'a Server, adv_da
 
     // Run the GATT server on the connection. This returns when the connection gets disconnected.
     let gatt_server_fut = gatt_server::run(&conn, server, |_e| {});
-    let gatt_update_fut = update_gatt(&server, &conn);
+    let gatt_update_fut = update_gatt(server, &conn);
 
     pin_mut!(gatt_server_fut);
     pin_mut!(gatt_update_fut);
@@ -153,11 +154,11 @@ pub async fn run_ble_application(sd: &'static Softdevice, server: &Server) {
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 
             0xFF, 
-        0x0A, 0x09, b'K', b'u', b's', b't', b'y', b'B', b'u', b't', b't',
+        0x07, 0x09, b'S', b'e', b'n', b's', b'u', b's',
     ];
 
     let mut data_subscriber = SENSOR_DATA_BUS.subscriber().unwrap();
-    let mut data = data_subscriber.next_message_pure().await;
+    let mut data = DataPacket::default();
     loop {
         // Transform data in advertisment data
         adv_data[8..29].clone_from_slice(&bthome_format_data(&data));

@@ -1,5 +1,4 @@
 use defmt::{info, warn, Format};
-use embassy_nrf::gpio::AnyPin;
 use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::saadc::VddInput;
 use embassy_nrf::{
@@ -178,14 +177,16 @@ pub async fn application_task(mut peripherals: ApplicationPeripherals) {
         );
 
         let sensors = super::sensors::Sensors::new();
-        if let Ok(data_packet) = sensors.sample(hw).await {
-            info!("Got new data: {:?}", data_packet);
-            let publisher = SENSOR_DATA_BUS.publisher().unwrap();
-            publisher.publish_immediate(data_packet);
-            ticker.next().await;
-        } else {
-            // Try three times... Afterwards report error and sleep. TODO.
-            warn!("Error sampling sensor.");
+        match sensors.sample(hw).await {
+            Ok(data_packet) => {
+                info!("Got new data: {:?}", data_packet);
+                let publisher = SENSOR_DATA_BUS.publisher().unwrap();
+                publisher.publish_immediate(data_packet);
+                ticker.next().await;
+            }
+            Err(e) => {
+                defmt::error!("Sensor error: {:?}", e)
+            }
         };
     }
 }

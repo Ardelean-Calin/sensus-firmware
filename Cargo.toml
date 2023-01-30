@@ -75,6 +75,7 @@ serde = { version = "1.0.*", default-features = false }
 postcard = "1.0.2"
 # My libraries
 async-guard = { version = "0.1.0", path = "async-guard" }
+opt300x = "0.1.1"
 
 [patch.crates-io]
 nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }

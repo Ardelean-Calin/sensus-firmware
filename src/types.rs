@@ -1,4 +1,5 @@
 use defmt::Format;
+use embassy_nrf::gpio::AnyPin;
 use heapless::Vec;
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +21,7 @@ pub enum PacketID {
     DFU_FRAME = 0x39, // This is how we represent a DFU frame.
     DFU_DONE = 0x3A,  // Sent by us to mark that the DFU is done.
     REQ_RETRY = 0xFE, // Retry sending the last frame.
-    ERROR = 0xFF,     // Represents an error
+    Error = 0xFF,     // Represents an error
 }
 
 #[derive(Clone)]
@@ -47,4 +48,9 @@ impl CommPacket {
     pub fn is(&self, id: PacketID) -> bool {
         self.id == id
     }
+}
+
+pub struct I2cPins {
+    pub pin_sda: AnyPin,
+    pub pin_scl: AnyPin,
 }
