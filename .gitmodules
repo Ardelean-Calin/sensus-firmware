@@ -10,3 +10,6 @@
 [submodule "nrf-softdevice"]
 	path = nrf-softdevice
 	url = git@github.com:Ardelean-Calin/nrf-softdevice.git
+[submodule "opt300x-rs-async"]
+	path = opt300x-rs-async
+	url = git@github.com:Ardelean-Calin/opt300x-rs-async.git

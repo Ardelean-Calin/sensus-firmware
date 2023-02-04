@@ -15,9 +15,7 @@ use crate::types::CommError;
 use crate::types::CommPacket;
 
 pub mod tasks;
-pub(crate) use tasks::serial_task;
 
-#[derive(Debug)]
 enum UartError {
     GenericRxError,
     RxBufferFull,

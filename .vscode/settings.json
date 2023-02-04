@@ -14,6 +14,7 @@
     "explorer.fileNesting.enabled": true,
     "rust-analyzer.inlayHints.lifetimeElisionHints.enable": "always",
     "rust-analyzer.inlayHints.lifetimeElisionHints.useParameterNames": true,
+    "editor.semanticHighlighting.enabled": false,
     // "rust-analyzer.imports.granularity.group": "module",
     // "rust-analyzer.cargo.buildScripts.enable": true,
     // "rust-analyzer.procMacro.attributes.enable": true,
