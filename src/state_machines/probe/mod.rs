@@ -36,6 +36,7 @@ pub async fn run(mut per: ProbePeripherals) {
                     }
                     Ok(None) => {
                         defmt::error!("TODO: Error sampling probe.");
+                        sm = sm.with_state(ProbeSMState::Sleep);
                     }
                     Err(_) => {
                         sm = sm.with_state(ProbeSMState::Error(ProbeError::TimeoutError));
