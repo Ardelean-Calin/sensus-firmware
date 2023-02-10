@@ -1,15 +1,6 @@
 [submodule "shtc3-async"]
 	path = shtc3-async
 	url = git@github.com:Ardelean-Calin/shtc3-async.git
-[submodule "ltr303-async"]
-	path = ltr303-async
-	url = git@github.com:Ardelean-Calin/ltr303-rs-async.git
-[submodule "embassy"]
-	path = embassy
-	url = git@github.com:Ardelean-Calin/embassy.git
-[submodule "nrf-softdevice"]
-	path = nrf-softdevice
-	url = git@github.com:Ardelean-Calin/nrf-softdevice.git
 [submodule "opt300x-rs-async"]
 	path = opt300x-rs-async
 	url = git@github.com:Ardelean-Calin/opt300x-rs-async.git
