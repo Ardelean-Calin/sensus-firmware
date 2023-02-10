@@ -1,3 +1,4 @@
+cargo-features = ["profile-rustflags"]
 [package]
 name = "plantbuddy-fw"
 version = "0.1.0"
@@ -28,6 +29,7 @@ embassy-time = { version = "0.1.0", features = [
     "defmt-timestamp-uptime",
     "unstable-traits",
 ] }
+embassy-futures = { version = "0.1.0", path = "embassy/embassy-futures" }
 embassy-sync = { version = "0.1.0", features = ["defmt"] }
 embassy-nrf = { version = "0.1.0", features = [
     "nightly",
@@ -80,6 +82,7 @@ postcard = "1.0.2"
 async-guard = { version = "0.1.0", path = "async-guard" }
 opt300x = "0.1.1"
 bthome = { version = "0.1.0", path = "../bthome" }
+bitbang-hal = "0.3.2"
 
 [patch.crates-io]
 nrf-softdevice = { path = "nrf-softdevice/nrf-softdevice" }
@@ -111,8 +114,11 @@ debug = 1
 debug-assertions = false
 incremental = false
 lto = "fat"
-opt-level = 's'
+opt-level = 'z'
 overflow-checks = false
+# Doesn't work. Remember to use DEFMT_LOG=off for the smallest binary size.
+# rustflags = ["-C", "link-arg=-Wl,-DDEFMT_LOG=off"]
+# strip = true
 
 [profile.release.build-override]
 codegen-units = 8

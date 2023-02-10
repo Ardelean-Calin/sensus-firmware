@@ -41,6 +41,12 @@ impl<T: Copy> Filter<T> {
     pub fn get_value(&self) -> Option<T> {
         self.value
     }
+
+    /// Resets the filter. This way if a large break between measurements took place
+    /// and we feed new data, our filter will start from new.
+    pub fn reset(&mut self) {
+        self.value = Default::default();
+    }
 }
 
 impl<T> Filter<T>

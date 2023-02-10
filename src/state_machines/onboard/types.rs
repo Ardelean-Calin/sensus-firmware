@@ -8,7 +8,7 @@ pub enum OnboardSMState {
     FirstRun,
     Start,
     Measure,
-    Publish(Option<OnboardSample>),
+    Publish(OnboardSample),
     Error(OnboardError),
     Sleep,
 }

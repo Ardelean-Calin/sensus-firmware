@@ -120,13 +120,14 @@ async fn main_task() {
     //       If I enable it here, the crystal will always be on, drawing a significant
     //       amount of power!
     // config.hfclk_source = embassy_nrf::config::HfclkSource::ExternalXtal;
-    config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
-    config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
+    config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P7;
+    config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P7;
     config.lfclk_source = embassy_nrf::config::LfclkSource::ExternalXtal;
     let p = embassy_nrf::init(config);
 
     // Enable the softdevice.
     let (sd, server) = drivers::ble::configure_ble();
+    info!("My address: {:?}", nrf_softdevice::ble::get_address(sd));
     // And get the flash controller
     let mut flash = nrf_softdevice::Flash::take(sd);
     let mut updater = FirmwareUpdater::default();

@@ -1,7 +1,10 @@
+use embassy_time::Instant;
 use heapless::Vec;
 
 use bthome::{self, BTHome};
 use defmt::{unwrap, Format};
+
+use crate::drivers::{onboard::types::OnboardSample, probe::types::ProbeSample};
 
 macro_rules! bthome_length {
     ($field:expr) => {
@@ -36,6 +39,28 @@ pub struct AdvertismentPayload {
 }
 
 impl AdvertismentPayload {
+    pub fn with_uptime(self, uptime: Instant) -> Self {
+        Self {
+            uptime: Some((uptime.as_secs() as f32).into()),
+            ..self
+        }
+    }
+    pub fn with_onboard_data(self, data: OnboardSample) -> Self {
+        Self {
+            battery_level: Some(data.battery_level.value.into()),
+            air_temperature: Some(data.environment_data.temperature.into()),
+            air_humidity: Some(data.environment_data.humidity.into()),
+            illuminance: Some(data.environment_data.illuminance.into()),
+            ..self
+        }
+    }
+    pub fn with_probe_data(self, data: ProbeSample) -> Self {
+        Self {
+            soil_temperature: Some(data.temperature.into()),
+            soil_humidity: Some(data.moisture.into()),
+            ..self
+        }
+    }
     fn length(&self) -> usize {
         bthome_length!(self.battery_level)
             + bthome_length!(self.air_temperature)

@@ -7,7 +7,7 @@ use crate::drivers::probe::types::{ProbeError, ProbeSample};
 pub enum ProbeSMState {
     Start,
     Measure,
-    Publish(Option<ProbeSample>),
+    Publish(ProbeSample),
     Error(ProbeError),
     Sleep,
 }

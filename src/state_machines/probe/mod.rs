@@ -1,18 +1,15 @@
 mod types;
 
-use defmt::unwrap;
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use embassy_time::{with_timeout, Duration};
 use futures::StreamExt;
 
 use crate::{
+    coroutines::packet_builder::PROBE_DATA_SIG,
     drivers::probe::sample_soil,
-    drivers::probe::types::{ProbeError, ProbeHardware, ProbePeripherals, ProbeSample},
+    drivers::probe::types::{ProbeError, ProbeHardware, ProbePeripherals},
 };
 
 use types::{ProbeSM, ProbeSMState};
-
-pub static PROBE_DATA: Mutex<ThreadModeRawMutex, Option<ProbeSample>> = Mutex::new(None);
 
 pub async fn run(mut per: ProbePeripherals) {
     // Local variables.
@@ -34,8 +31,11 @@ pub async fn run(mut per: ProbePeripherals) {
                 .await;
 
                 match res {
-                    Ok(sample) => {
+                    Ok(Some(sample)) => {
                         sm = sm.with_state(ProbeSMState::Publish(sample));
+                    }
+                    Ok(None) => {
+                        defmt::error!("TODO: Error sampling probe.");
                     }
                     Err(_) => {
                         sm = sm.with_state(ProbeSMState::Error(ProbeError::TimeoutError));
@@ -43,8 +43,7 @@ pub async fn run(mut per: ProbePeripherals) {
                 }
             }
             ProbeSMState::Publish(sample) => {
-                let mut data = PROBE_DATA.lock().await;
-                *data = sample;
+                PROBE_DATA_SIG.signal(sample);
                 sm = sm.with_state(ProbeSMState::Sleep);
             }
             ProbeSMState::Sleep => {

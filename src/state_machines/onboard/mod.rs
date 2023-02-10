@@ -1,14 +1,11 @@
 mod types;
 
 use defmt::unwrap;
-
-use embassy_futures::join::join;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::mutex::Mutex;
 use embassy_time::with_timeout;
 use embassy_time::Instant;
 use futures::StreamExt;
 
+use crate::coroutines::packet_builder::ONBOARD_DATA_SIG;
 use crate::drivers::onboard::battery;
 use crate::drivers::onboard::environment;
 use crate::drivers::onboard::types::{
@@ -16,8 +13,6 @@ use crate::drivers::onboard::types::{
 };
 
 use types::{OnboardSM, OnboardSMState};
-
-pub static ONBOARD_DATA: Mutex<ThreadModeRawMutex, Option<OnboardSample>> = Mutex::new(None);
 
 pub async fn run(mut per: OnboardPeripherals) {
     let mut sm = OnboardSM::new();
@@ -51,8 +46,12 @@ pub async fn run(mut per: OnboardPeripherals) {
                 .await;
 
                 match res {
-                    Ok(sample) => {
+                    Ok(Some(sample)) => {
                         sm = sm.with_state(OnboardSMState::Publish(sample));
+                    }
+                    Ok(None) => {
+                        defmt::error!("TODO. Got an error while sampling.");
+                        sm = sm.with_state(OnboardSMState::Sleep);
                     }
                     Err(_) => {
                         sm = sm.with_state(OnboardSMState::Error(OnboardError::Timeout));
@@ -60,8 +59,7 @@ pub async fn run(mut per: OnboardPeripherals) {
                 }
             }
             OnboardSMState::Publish(sample) => {
-                let mut data = ONBOARD_DATA.lock().await;
-                *data = sample;
+                ONBOARD_DATA_SIG.signal(sample);
                 sm = sm.with_state(OnboardSMState::Sleep);
             }
             OnboardSMState::Sleep => {
