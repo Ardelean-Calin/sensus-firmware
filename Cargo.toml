@@ -78,7 +78,6 @@ panic-persist = { version = "0.3.0", features = ["min-panic"] }
 serde = { version = "1.0.*", default-features = false }
 postcard = "1.0.2"
 # My libraries
-opt300x = "0.1.1"
 bthome = { version = "0.1.0", git = "https://github.com/Ardelean-Calin/bthome-rs.git" }
 bitbang-hal = "0.3.2"
 
