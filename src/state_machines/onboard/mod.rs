@@ -1,8 +1,7 @@
 mod types;
 
 use defmt::unwrap;
-use embassy_time::with_timeout;
-use embassy_time::Instant;
+use embassy_time::{with_timeout, Duration, TimeoutError};
 use futures::StreamExt;
 
 use crate::coroutines::packet_builder::ONBOARD_DATA_SIG;
@@ -17,7 +16,6 @@ use types::{OnboardSM, OnboardSMState};
 pub async fn run(mut per: OnboardPeripherals) {
     let mut sm = OnboardSM::new();
     loop {
-        defmt::info!("Current state: {:?}", &sm.state);
         match sm.state {
             OnboardSMState::FirstRun => {
                 let hw = OnboardHardware::from_peripherals(&mut per);
@@ -30,30 +28,34 @@ pub async fn run(mut per: OnboardPeripherals) {
                 // sm = sm.with_state(OnboardSMState::Sleep);
             }
             OnboardSMState::Measure => {
-                let res = with_timeout(embassy_time::Duration::from_millis(200), async {
-                    let hw = OnboardHardware::from_peripherals(&mut per);
-                    let environment_data = environment::sample_environment(hw.i2c_bus).await;
-                    let battery_level = battery::sample_battery_level(hw.battery).await;
+                let res: Result<Result<OnboardSample, OnboardError>, TimeoutError> =
+                    with_timeout(Duration::from_millis(200), async {
+                        let hw = OnboardHardware::from_peripherals(&mut per);
 
-                    let sample = OnboardSample {
-                        environment_data,
-                        battery_level,
-                        current_time: Instant::now(),
-                    };
+                        let environment_data =
+                            environment::sample_environment(hw.i2c_bus, hw.wait_int)
+                                .await
+                                .map_err(OnboardError::Environment)?;
+                        let battery_level = battery::sample_battery_level(hw.battery).await;
 
-                    Some(sample)
-                })
-                .await;
+                        let sample = OnboardSample {
+                            environment_data,
+                            battery_level,
+                        };
+
+                        Ok(sample)
+                    })
+                    .await;
 
                 match res {
-                    Ok(Some(sample)) => {
+                    Ok(Ok(sample)) => {
                         sm = sm.with_state(OnboardSMState::Publish(sample));
                     }
-                    Ok(None) => {
+                    Ok(Err(e)) => {
                         defmt::error!("TODO. Got an error while sampling.");
-                        sm = sm.with_state(OnboardSMState::Sleep);
+                        sm = sm.with_state(OnboardSMState::Error(e));
                     }
-                    Err(_) => {
+                    Err(_timeout) => {
                         sm = sm.with_state(OnboardSMState::Error(OnboardError::Timeout));
                     }
                 }

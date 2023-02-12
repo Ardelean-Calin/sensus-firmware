@@ -1,14 +1,13 @@
 use super::{
     battery::types::{BatteryLevel, BatterySensor},
-    environment::types::EnvironmentSample,
+    environment::types::{EnvironmentError, EnvironmentSample},
 };
 
 use defmt::Format;
 use embassy_nrf::{
-    gpio::AnyPin,
+    gpio::{AnyPin, Input},
     peripherals::{SAADC, TWISPI0},
 };
-use embassy_time::Instant;
 
 pub struct OnboardPeripherals {
     pub pin_sda: AnyPin,
@@ -24,7 +23,6 @@ pub struct OnboardPeripherals {
 pub struct OnboardSample {
     pub environment_data: EnvironmentSample,
     pub battery_level: BatteryLevel,
-    pub current_time: Instant,
 }
 
 pub type BusManagerType<'a> = shared_bus::BusManager<
@@ -34,11 +32,12 @@ pub type BusManagerType<'a> = shared_bus::BusManager<
 pub struct OnboardHardware<'a> {
     pub i2c_bus: BusManagerType<'a>,
     pub battery: BatterySensor<'a>,
+    pub wait_int: Input<'a, AnyPin>,
 }
 
 /// Possible error types.
 #[derive(Format)]
 pub enum OnboardError {
-    I2CError,
+    Environment(EnvironmentError),
     Timeout,
 }

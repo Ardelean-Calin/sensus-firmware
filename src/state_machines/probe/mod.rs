@@ -15,7 +15,6 @@ pub async fn run(mut per: ProbePeripherals) {
     // Local variables.
     let mut sm = ProbeSM::new();
     loop {
-        defmt::info!("Probe state: {:?}", sm.state);
         match sm.state {
             ProbeSMState::Start => {
                 // TODO: Get probe configuration data from global config
