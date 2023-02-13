@@ -1,8 +1,8 @@
 pub mod types;
 
-use defmt::unwrap;
 use embassy_futures::select::{select, Either};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::PubSubChannel};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, signal::Signal};
+use embassy_time::{with_timeout, Duration};
 use nrf_softdevice::Softdevice;
 
 use crate::drivers::ble::{
@@ -11,32 +11,64 @@ use crate::drivers::ble::{
 };
 use types::{BleSM, BleSMState};
 
-pub static BLE_ADV_PKT_QUEUE: PubSubChannel<ThreadModeRawMutex, AdvertismentPayload, 1, 1, 1> =
-    PubSubChannel::new();
+pub static BLE_ADV_PKT_QUEUE: Channel<ThreadModeRawMutex, AdvertismentPayload, 1> = Channel::new();
+/// Signals new advertising data between the two "threads".
+static ADV_DATA: Signal<ThreadModeRawMutex, AdvertismentData> = Signal::new();
 
-pub async fn run(sd: &'static Softdevice, server: gatt::Server) {
+pub async fn gatt_spawner(sd: &'static Softdevice, server: gatt::Server) {
+    let mut advdata = AdvertismentData::default();
+    loop {
+        let advdata_vec = advdata.as_vec();
+
+        match select(
+            ADV_DATA.wait(),
+            gatt::run_gatt_server(sd, &server, advdata_vec),
+        )
+        .await
+        {
+            Either::First(newdata) => {
+                advdata = newdata;
+                defmt::info!("New Advdata: {:?}", advdata);
+            }
+            Either::Second(_e) => {
+                defmt::info!("Gatt server terminated.");
+            }
+        }
+    }
+}
+
+pub async fn run() {
     let mut sm = BleSM::new();
-    let mut subscriber = unwrap!(BLE_ADV_PKT_QUEUE.subscriber());
     let mut current_adv_data = AdvertismentData::default();
+
     loop {
         match sm.state {
-            BleSMState::Advertising => {
-                let adv_data_vec = current_adv_data.as_vec();
-                let new_adv_pkt_fut = subscriber.next_message_pure();
-                let gatt_server_fut = gatt::run_gatt_server(sd, &server, adv_data_vec.as_slice());
-
-                match select(new_adv_pkt_fut, gatt_server_fut).await {
-                    Either::First(payload) => {
-                        // A venit un payload nou.
-                        current_adv_data = AdvertismentData::default().with_payload(payload);
-                        defmt::info!("{:?}", current_adv_data);
+            BleSMState::WaitForAdvdata => {
+                let payload = BLE_ADV_PKT_QUEUE.recv().await;
+                current_adv_data = current_adv_data.with_payload(payload);
+                sm = sm.with_state(BleSMState::Debounce);
+            }
+            // Debounce new received data so that I don't publish more often than every 250ms
+            BleSMState::Debounce => {
+                match with_timeout(Duration::from_millis(250), async {
+                    let payload = BLE_ADV_PKT_QUEUE.recv().await;
+                    current_adv_data.with_payload(payload)
+                })
+                .await
+                {
+                    Ok(newdata) => {
+                        // New data came before timeout. Don't change anything
+                        current_adv_data = newdata;
+                    }
+                    Err(_e) => {
+                        // Timeout occured, so we debounced the received messages. We can go to the next state.
                         sm = sm.with_state(BleSMState::Advertising);
                     }
-                    Either::Second(_res) => {
-                        defmt::error!("GATT error");
-                        sm = sm.with_state(BleSMState::GattDisconnected);
-                    }
                 }
+            }
+            BleSMState::Advertising => {
+                ADV_DATA.signal(current_adv_data);
+                sm = sm.with_state(BleSMState::WaitForAdvdata);
             }
             BleSMState::GattDisconnected => {
                 defmt::error!("GATT server disconnected. ");

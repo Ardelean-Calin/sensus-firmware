@@ -90,7 +90,7 @@ impl AdvertismentPayload {
     }
 }
 
-#[derive(Format)]
+#[derive(Format, Clone, Copy)]
 pub struct AdvertismentData {
     payload: AdvertismentPayload,
     name: &'static str,

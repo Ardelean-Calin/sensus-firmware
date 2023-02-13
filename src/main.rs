@@ -16,6 +16,7 @@ mod state_machines;
 mod tasks;
 mod types;
 
+use embassy_futures::join::join;
 use embassy_time::{Duration, Timer};
 use nrf_softdevice::Softdevice;
 // use sensors::probe::soil::soil_sensor::ProbeData;
@@ -190,7 +191,11 @@ async fn main_task() {
     //     p.P0_27.degrade(),
     // ));
     // Should await forever.
-    state_machines::ble::run(sd, server).await;
+    join(
+        state_machines::ble::gatt_spawner(sd, server),
+        state_machines::ble::run(),
+    )
+    .await;
 }
 
 struct PowerDetect {

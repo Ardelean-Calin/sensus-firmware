@@ -21,8 +21,6 @@ pub async fn run() {
     let mut onboard_filter = OnboardFilter::default();
     let mut probe_filter = Filter::<ProbeSample>::default();
 
-    let ble_pub = defmt::unwrap!(BLE_ADV_PKT_QUEUE.publisher());
-
     loop {
         // Wait for either new onboard data or new probe data.
         adv_payload = match select(ONBOARD_DATA_SIG.wait(), PROBE_DATA_SIG.wait()).await {
@@ -39,6 +37,6 @@ pub async fn run() {
         };
         adv_payload = adv_payload.with_uptime(Instant::now());
         // This call is debounced by the BLE state machine.
-        ble_pub.publish_immediate(adv_payload);
+        BLE_ADV_PKT_QUEUE.send(adv_payload).await;
     }
 }

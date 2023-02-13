@@ -1,4 +1,5 @@
 use defmt::{info, unwrap};
+use heapless::Vec;
 use nrf_softdevice::{
     ble::{
         gatt_server::{self, RunError},
@@ -24,7 +25,7 @@ pub struct Server {
 pub async fn run_gatt_server<'a>(
     sd: &'static Softdevice,
     server: &'a Server,
-    adv_data: &'a [u8],
+    adv_data: Vec<u8, 64>,
 ) -> Result<(), RunError> {
     let config = nrf_softdevice::ble::peripheral::Config {
         interval: 1600, // equivalent to 1000ms
@@ -34,7 +35,7 @@ pub async fn run_gatt_server<'a>(
 
     let adv = peripheral::ConnectableAdvertisement::ExtendedNonscannableUndirected {
         set_id: 0,
-        adv_data,
+        adv_data: adv_data.as_slice(),
     };
     let conn = unwrap!(peripheral::advertise_connectable(sd, adv, &config).await);
     info!("Advertising done! Got a connection, trying to negociate higher connection intervals.");
