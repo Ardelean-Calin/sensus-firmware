@@ -33,7 +33,7 @@ pub async fn run(mut per: OnboardPeripherals) {
                         let hw = OnboardHardware::from_peripherals(&mut per);
 
                         let environment_data =
-                            environment::sample_environment(hw.i2c_bus, hw.wait_int)
+                            environment::sample_environment(hw.i2c_bus, hw.wait_pin)
                                 .await
                                 .map_err(OnboardError::Environment)?;
                         let battery_level = battery::sample_battery_level(hw.battery).await;

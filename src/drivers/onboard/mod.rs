@@ -43,7 +43,7 @@ impl<'a> OnboardHardware<'a> {
         OnboardHardware {
             i2c_bus,
             battery,
-            wait_int,
+            wait_pin: wait_int,
         }
     }
 }

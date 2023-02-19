@@ -17,10 +17,8 @@ mod tasks;
 mod types;
 
 use embassy_futures::join::join;
-use embassy_time::{Duration, Timer};
 use nrf_softdevice::Softdevice;
 // use sensors::probe::soil::soil_sensor::ProbeData;
-use types::*;
 
 mod custom_executor;
 
@@ -35,7 +33,6 @@ use embassy_nrf::{
     peripherals,
     ppi::ConfigurableChannel,
     wdt::Watchdog,
-    Peripherals,
 };
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::PubSubChannel};
 use futures::StreamExt;
@@ -133,6 +130,7 @@ async fn main_task() {
     let mut flash = nrf_softdevice::Flash::take(sd);
     let mut updater = FirmwareUpdater::default();
     let mut magic = [0; 4];
+
     // TODO: Move to another place. Somewhere where if we got here, it is sure that the firmware is working.
     // let _ = updater.mark_booted(&mut flash, &mut magic).await;
 

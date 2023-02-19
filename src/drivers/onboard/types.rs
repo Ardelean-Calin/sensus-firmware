@@ -32,7 +32,7 @@ pub type BusManagerType<'a> = shared_bus::BusManager<
 pub struct OnboardHardware<'a> {
     pub i2c_bus: BusManagerType<'a>,
     pub battery: BatterySensor<'a>,
-    pub wait_int: Input<'a, AnyPin>,
+    pub wait_pin: Input<'a, AnyPin>,
 }
 
 /// Possible error types.
