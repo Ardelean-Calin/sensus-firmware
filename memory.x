@@ -2,10 +2,11 @@ MEMORY
 {
   /* NOTE 1 K = 1 KiBi = 1024 bytes */
   /* These values correspond to the nRF52832_xxAA with SoftDevices S112 7.3.0 */
+  MBR_SOFTDEVICE                    : ORIGIN = 0x00000000, LENGTH = 152K
+  FLASH                             : ORIGIN = 0x00026000, LENGTH = 164K
+  DFU                               : ORIGIN = 0x0004F000, LENGTH = 168K
   BOOTLOADER                        : ORIGIN = 0x00079000, LENGTH = 24K
   BOOTLOADER_STATE                  : ORIGIN = 0x0007F000, LENGTH = 4K
-  FLASH                             : ORIGIN = 0x00026000, LENGTH = 164K + 164K
-  DFU                               : ORIGIN = 0x0004F000, LENGTH = 4K
   RAM                         (rwx) : ORIGIN = 0x20002cd0, LENGTH = 32K
   PANDUMP                           : ORIGIN = 0x20000000 + 0x24b8 + 32K, LENGTH = 1K
 }
