@@ -64,7 +64,6 @@ pub(crate) async fn run(mut flash: Flash) {
 
     let mut sm = DfuStateMachine::new();
     loop {
-        // info!("DFU state: {:?}", sm.state);
         match sm.state {
             DfuState::Idle => {
                 // Wait for start of DFU
@@ -96,7 +95,6 @@ pub(crate) async fn run(mut flash: Flash) {
                             } else {
                                 tx_publisher.publish(RawPacket::RespOK).await;
                             }
-                            info!("Requesting next frame...");
                             sm.frame_counter += 1;
                         } else {
                             info!("{:?}\t{:?}", block_data.counter, sm.frame_counter);
@@ -121,7 +119,7 @@ pub(crate) async fn run(mut flash: Flash) {
                 }
             }
             DfuState::FlashPage => {
-                // flash_page(&page, sm.page_offset, &mut updater, &mut flash).await;
+                flash_page(&page, sm.page_offset, &mut updater, &mut flash).await;
                 page.clear();
                 sm.page_offset += 4096;
 
