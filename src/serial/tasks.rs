@@ -56,7 +56,7 @@ pub async fn serial_task(
         // UART-related
         let mut config = uarte::Config::default();
         config.parity = uarte::Parity::EXCLUDED;
-        config.baudrate = uarte::Baudrate::BAUD19200;
+        config.baudrate = uarte::Baudrate::BAUD460800;
 
         let uart = uarte::Uarte::new(
             &mut instance,
