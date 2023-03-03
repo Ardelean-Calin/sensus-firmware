@@ -28,7 +28,7 @@ pub async fn gatt_spawner(sd: &'static Softdevice, server: gatt::Server) {
         {
             Either::First(newdata) => {
                 advdata = newdata;
-                defmt::info!("New Advdata: {:?}", advdata);
+                // defmt::info!("New Advdata: {:?}", advdata);
             }
             Either::Second(_e) => {
                 defmt::info!("Gatt server terminated.");

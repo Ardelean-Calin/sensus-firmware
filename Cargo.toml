@@ -75,12 +75,16 @@ shared-bus = { version = "0.2.4", features = ["cortex-m"] }
 tmp1x2 = "0.2.1"
 embedded-hal = "0.2.7"
 panic-persist = { version = "0.3.0", features = ["min-panic"] }
-serde = { version = "1.0.*", default-features = false }
-postcard = "1.0.2"
+
 # My libraries
+cobs = { version = "0.2.3", default-features = false }
+
 bthome = { version = "0.1.0", git = "https://github.com/Ardelean-Calin/bthome-rs.git" }
 bitbang-hal = "0.3.2"
-
+crc = "3.0.1"
+postcard = { version = "1.0.4", features = ["heapless"] }
+serde = { version = "1.0.*", default-features = false }
+serde_repr = "0.1.10"
 [patch.crates-io]
 nrf52832-pac = { git = "https://github.com/Ardelean-Calin/nrf-pacs.git" }
 

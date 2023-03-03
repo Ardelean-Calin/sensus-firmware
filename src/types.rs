@@ -1,99 +1,114 @@
-use defmt::Format;
+use crc::{Crc, CRC_16_GSM};
+use defmt::{info, Format};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::PubSubChannel};
 use heapless::Vec;
-use serde::{Deserialize, Serialize};
 
-#[allow(non_camel_case_types)]
-#[derive(Format, Serialize, Deserialize, Clone, Default, PartialEq)]
-pub enum PacketID {
-    #[default]
-    STREAM_START = 0x31, // Starts data streaming via UART
-    STREAM_STOP = 0x32, // Stops data streaming via UART
-    DFU_START = 0x33,   // Represents the start of a dfu operation
+use postcard::from_bytes;
+use serde::{de, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
-    REQ_NO_PAGES = 0x34,  // Request remaining pages in DFU process.
-    DFU_NO_PAGES = 0x35,  // The received number of pages.
-    REQ_NEXT_PAGE = 0x36, // Indicates to the updater to increment the page number.
+pub const CRC_GSM: Crc<u16> = Crc::<u16>::new(&CRC_16_GSM);
 
-    DFU_NO_FRAMES = 0x37, // The number of 128-byte frames in the requested page.
-    REQ_NEXT_FRAME = 0x38, // Updater, please give me the next 128-byte frame.
-
-    DFU_FRAME = 0x39, // This is how we represent a DFU frame.
-    DFU_DONE = 0x3A,  // Sent by us to mark that the DFU is done.
-    REQ_RETRY = 0xFE, // Retry sending the last frame.
-    Error = 0xFF,     // Represents an error
-}
-
-#[derive(Clone)]
-pub enum CommError {
-    PhysError, // Error at the physical layer (UART or BLE)
-    MalformedPacket,
+#[derive(Format, Debug, Clone)]
+pub enum Error {
+    /// General decoding error when trying to create a packet from raw bytes.
+    DecodeError(&'static str),
+    CrcError,
+    /// Error at the physical layer (UART or BLE).
+    UartRxError,
+    UartTxError,
+    UartBufferFull,
+    /// A COBS decoding error happened due to for ex. missing bytes.
+    CobsDecodeError,
     Timeout,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub struct CommPacket {
-    pub id: PacketID,
-    pub data: heapless::Vec<u8, 128>,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DfuBlockPayload {
+    pub counter: u8,
+    pub data: [u8; 32],
 }
 
-impl CommPacket {
-    pub fn retry() -> CommPacket {
-        CommPacket {
-            id: PacketID::REQ_RETRY,
-            data: Vec::new(),
+impl Format for DfuBlockPayload {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "counter({:?})  data({:?})",
+            self.counter,
+            self.data.as_slice()
+        );
+    }
+}
+
+fn u32_deserializer<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: [u8; 4] = de::Deserialize::deserialize(deserializer).unwrap();
+    let res = u32::from_le_bytes(s);
+    Ok(res)
+}
+
+#[repr(C)]
+#[derive(Serialize, Deserialize, Clone, Format)]
+pub struct DfuHeader {
+    #[serde(deserialize_with = "u32_deserializer")]
+    pub binary_size: u32,
+}
+
+// NOTE: Due to postcard's limitations I cannot give them ID's unfortunately.
+// #[repr(u8)]
+#[derive(Clone, Serialize, Deserialize, Format)]
+pub enum RawPacket {
+    // Responses (from us to them)
+    RespOK,
+    RespNOK,
+    RespHandshake,
+    RespDfuRequestBlock,
+    RespDfuDone,
+    // Received packet IDs
+    RecvHandshake,
+    RecvDfuStart(DfuHeader),
+    RecvDfuBlock(DfuBlockPayload),
+}
+
+#[derive(Clone, Serialize)]
+pub struct Packet {
+    pub raw: RawPacket,
+    // Checksum of Header + Payload
+    pub checksum: u16,
+}
+
+impl Packet {
+    pub(crate) fn from_slice(slice: &[u8]) -> Result<Self, Error> {
+        let mut payload_iter = slice.iter();
+
+        // Extract the checksum and check if it's a fine checksum
+        let checksum = match (payload_iter.next_back(), payload_iter.next_back()) {
+            (Some(byte1), Some(byte2)) => Ok(u16::from_be_bytes([*byte1, *byte2])),
+            _ => Err(Error::DecodeError("Could not extract CRC.")),
+        }?;
+        let actual_checksum = CRC_GSM.checksum(payload_iter.as_slice());
+
+        // Raise an error if checksum doesn't match.
+        if checksum != actual_checksum {
+            return Err(Error::CrcError);
         }
-    }
 
-    pub fn is(&self, id: PacketID) -> bool {
-        self.id == id
-    }
-}
+        // Checksum is fine... continue
+        let payload_bytes = payload_iter.as_slice();
+        // Build Payload
+        let raw: RawPacket =
+            from_bytes(payload_bytes).expect("Error during serialization into RawPacket.");
 
-#[derive(Format, Clone, Copy)]
-pub struct FilteredFloat {
-    value: Option<f32>,
-    alpha: f32,
-}
-
-impl FilteredFloat {
-    /// Creates a new filtered float with given alpha constant.
-    fn new(alpha: f32) -> Self {
-        if !(0.0..=1.0).contains(&alpha) {
-            panic!(
-                "Wrong alpha value of {:?}. Expected a number between 0 and 1!",
-                alpha
-            );
-        }
-
-        Self { value: None, alpha }
-    }
-
-    /// Feeds a new value to the filter, resulting in the stored value being the filtered one.
-    fn feed(&mut self, new_value: f32) {
-        if let Some(prev_val) = self.value {
-            let filtered = prev_val + self.alpha * (new_value - prev_val);
-            self.value = Some(filtered);
-        } else {
-            self.value = Some(new_value);
-        }
+        Ok(Packet {
+            raw,
+            // Checksum of Header + Payload
+            checksum,
+        })
     }
 }
 
-impl Default for FilteredFloat {
-    /// Creates a default FilteredFloat. The default behavior is to tend towards more filtering.
-    fn default() -> Self {
-        Self {
-            value: Default::default(),
-            alpha: 0.1,
-        }
-    }
-}
-
-impl From<f32> for FilteredFloat {
-    fn from(value: f32) -> Self {
-        FilteredFloat {
-            value: Some(value),
-            ..Default::default()
-        }
-    }
-}
+pub static RX_BUS: PubSubChannel<ThreadModeRawMutex, Result<RawPacket, Error>, 3, 1, 1> =
+    PubSubChannel::new();
+pub static TX_BUS: PubSubChannel<ThreadModeRawMutex, RawPacket, 3, 1, 1> = PubSubChannel::new();

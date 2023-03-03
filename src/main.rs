@@ -11,10 +11,11 @@ mod prelude;
 // mod rgb;
 // mod sensors;
 mod coroutines;
-// mod serial;
+mod serial;
 mod state_machines;
 mod tasks;
 mod types;
+// mod serial;
 
 use embassy_futures::join::join;
 use nrf_softdevice::Softdevice;
@@ -174,15 +175,19 @@ async fn main_task() {
     spawner.must_spawn(tasks::soil_task(probe_per));
     spawner.must_spawn(tasks::packet_manager_task());
 
+    // TODO: This "task" can run all the time, since we want DFU to be available via Bluetooth, as
+    // well.
+    spawner.must_spawn(tasks::dfu_task(flash));
+
     // Will handle UART DFU and data logging over UART.
-    // spawner.must_spawn(serial::tasks::serial_task(
-    //     p.UARTE0,
-    //     p.P0_03.degrade(),
-    //     p.P0_02.degrade(),
-    // ));
-    // spawner.must_spawn(tasks::dfu_task::dfu_task(flash));
-    // spawner.must_spawn(rgb::tasks::heartbeat_task());
-    // spawner.must_spawn(rgb::tasks::rgb_task(
+    spawner.must_spawn(serial::tasks::serial_task(
+        p.UARTE0,
+        p.P0_03.degrade(),
+        p.P0_02.degrade(),
+    ));
+    // TODO: move these tasks
+    // spawner.must_spawn(drivers::rgb::tasks::heartbeat_task());
+    // spawner.must_spawn(drivers::rgb::tasks::rgb_task(
     //     p.PWM0,
     //     p.P0_28.degrade(),
     //     p.P0_26.degrade(),

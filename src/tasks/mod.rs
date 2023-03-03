@@ -1,3 +1,5 @@
+use nrf_softdevice::Flash;
+
 use crate::{coroutines, drivers, state_machines};
 
 // pub mod app;
@@ -17,4 +19,9 @@ pub async fn soil_task(per: drivers::probe::types::ProbePeripherals) {
 #[embassy_executor::task]
 pub async fn onboard_task(per: drivers::onboard::types::OnboardPeripherals) {
     state_machines::onboard::run(per).await;
+}
+
+#[embassy_executor::task]
+pub async fn dfu_task(flash: Flash) {
+    state_machines::dfu::run(flash).await;
 }

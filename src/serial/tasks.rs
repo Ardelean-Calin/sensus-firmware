@@ -1,16 +1,44 @@
-use defmt::info;
+use defmt::{error, info};
 
+use crate::types::{RX_BUS, TX_BUS};
+use crate::PLUGGED_DETECT;
+use embassy_futures::join::join;
 use embassy_nrf::gpio::AnyPin;
 use embassy_nrf::interrupt;
 use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::peripherals;
+use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte;
-
-use crate::DISPATCHER;
-use crate::PLUGGED_DETECT;
-use crate::RX_CHANNEL;
+use embassy_nrf::uarte::UarteRx;
+use embassy_nrf::uarte::UarteTx;
 
 use super::{recv_packet, send_packet};
+
+async fn uart_rx_task(rx: &mut UarteRx<'_, UARTE0>) {
+    loop {
+        let raw_packet_res = recv_packet(rx).await;
+        RX_BUS
+            .immediate_publisher()
+            .publish_immediate(raw_packet_res);
+    }
+}
+
+async fn uart_tx_task(tx: &mut UarteTx<'_, UARTE0>) {
+    let mut subscriber = TX_BUS
+        .subscriber()
+        .expect("Error registering subscriber for TX_BUS.");
+    loop {
+        let packet = subscriber.next_message().await;
+        match packet {
+            embassy_sync::pubsub::WaitResult::Lagged(x) => {
+                error!("Missed {:?} messages.", x);
+            }
+            embassy_sync::pubsub::WaitResult::Message(raw) => {
+                send_packet(tx, raw).await.expect("Failed to send packet.");
+            }
+        }
+    }
+}
 
 #[embassy_executor::task]
 pub async fn serial_task(
@@ -28,7 +56,7 @@ pub async fn serial_task(
         // UART-related
         let mut config = uarte::Config::default();
         config.parity = uarte::Parity::EXCLUDED;
-        config.baudrate = uarte::Baudrate::BAUD115200;
+        config.baudrate = uarte::Baudrate::BAUD19200;
 
         let uart = uarte::Uarte::new(
             &mut instance,
@@ -40,16 +68,7 @@ pub async fn serial_task(
         let (mut tx, mut rx) = uart.split();
 
         loop {
-            match DISPATCHER.await_command().await {
-                crate::DispatcherCommand::Receive(timeout) => {
-                    info!("Waiting for receiving...");
-                    let packet = recv_packet(&mut rx, timeout).await;
-                    RX_CHANNEL.immediate_publisher().publish_immediate(packet);
-                }
-                crate::DispatcherCommand::Send(packet) => {
-                    let _ = send_packet(&mut tx, packet).await;
-                }
-            }
+            join(uart_rx_task(&mut rx), uart_tx_task(&mut tx)).await;
         }
     })
     .await
