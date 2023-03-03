@@ -5,6 +5,8 @@ use defmt::info;
 
 use defmt::warn;
 use embassy_boot_nrf::FirmwareUpdater;
+use embassy_time::with_timeout;
+use embassy_time::Duration;
 use heapless::Vec;
 use nrf_softdevice::Flash;
 
@@ -79,35 +81,47 @@ pub(crate) async fn run(mut flash: Flash) {
                 }
             }
             DfuState::NextFrame => {
-                if let Ok(RawPacket::RecvDfuBlock(block_data)) =
-                    rx_subscriber.next_message_pure().await
-                {
-                    info!("Received frame {:?}", block_data.counter);
-                    if block_data.counter == sm.frame_counter {
-                        page.data
-                            .extend_from_slice(&block_data.data)
-                            .expect("Page full. Is the block size a divisor of 4096?");
+                let res = with_timeout(Duration::from_millis(100), async {
+                    if let Ok(RawPacket::RecvDfuBlock(block_data)) =
+                        rx_subscriber.next_message_pure().await
+                    {
+                        info!("Received frame {:?}", block_data.counter);
+                        if block_data.counter == sm.frame_counter {
+                            page.data
+                                .extend_from_slice(&block_data.data)
+                                .expect("Page full. Is the block size a divisor of 4096?");
 
-                        if page.is_full() {
-                            sm.state = DfuState::FlashPage;
+                            if page.is_full() {
+                                sm.state = DfuState::FlashPage;
+                            } else {
+                                tx_publisher.publish(RawPacket::RespOK).await;
+                            }
+                            info!("Requesting next frame...");
+                            sm.frame_counter += 1;
                         } else {
-                            tx_publisher.publish(RawPacket::RespOK).await;
+                            info!("{:?}\t{:?}", block_data.counter, sm.frame_counter);
+                            // Communication error. Aborting DFU.
+                            sm.state = DfuState::Error(DfuError::FrameCounterError)
                         }
-                        info!("Requesting next frame...");
-                        sm.frame_counter += 1;
                     } else {
-                        info!("{:?}\t{:?}", block_data.counter, sm.frame_counter);
-                        // Communication error. Aborting DFU.
-                        sm.state = DfuState::Error(DfuError::FrameCounterError)
+                        // In case of error, send NOK, causing frame to repeat.
+                        warn!("Error receiving DFU block. Retrying... 1");
+                        tx_publisher.publish(RawPacket::RespNOK).await;
                     }
-                } else {
-                    // In case of error, send NOK, causing frame to repeat.
-                    warn!("Error receiving DFU block. Retrying... 1");
-                    tx_publisher.publish(RawPacket::RespNOK).await;
+                })
+                .await;
+
+                // In case of timeout receiving next frame, ask for a frame repetition.
+                match res {
+                    Ok(_) => {}
+                    Err(_) => {
+                        warn!("Timeout error. Retrying... 1");
+                        tx_publisher.publish(RawPacket::RespNOK).await;
+                    }
                 }
             }
             DfuState::FlashPage => {
-                flash_page(&page, sm.page_offset, &mut updater, &mut flash).await;
+                // flash_page(&page, sm.page_offset, &mut updater, &mut flash).await;
                 page.clear();
                 sm.page_offset += 4096;
 
