@@ -20,6 +20,9 @@ pub enum Error {
     CobsDecodeError,
     /// Probe Errors
     ProbeTimeout,
+    ProbeDisconnected,
+    ProbeI2cError,
+    FrequencySensor,
     // Onboard sensor errors.
     OnboardResetFailed,
     OnboardTimeout,

@@ -1,14 +1,13 @@
 use defmt::Format;
 use embassy_time::{Duration, Ticker};
 
-use crate::{drivers::probe::types::ProbeSample, types::Error};
+use crate::drivers::probe::types::ProbeSample;
 
 #[derive(Format)]
 pub enum ProbeSMState {
     Start,
     Measure,
     Publish(ProbeSample),
-    Error(Error),
     Sleep,
 }
 
@@ -23,10 +22,6 @@ impl ProbeSM {
             state: ProbeSMState::Start,
             ticker: Ticker::every(Duration::from_secs(3)),
         }
-    }
-
-    pub fn with_state(self, state: ProbeSMState) -> Self {
-        Self { state, ..self }
     }
 
     #[allow(dead_code)]

@@ -9,6 +9,8 @@ use embassy_nrf::{
 
 use types::{FrequencySensor, FrequencySensorError};
 
+use crate::types::Error;
+
 impl<'a> FrequencySensor<'a> {
     pub fn new(
         counter: embassy_nrf::timerv2::Timer<CounterType>,
@@ -49,7 +51,7 @@ impl<'a> FrequencySensor<'a> {
         self.counter.shutdown();
     }
 
-    pub fn get_frequency(&self) -> Result<u32, FrequencySensorError> {
-        self.freq_result.ok_or(FrequencySensorError::Unknown)
+    pub fn get_frequency(&self) -> Result<u32, Error> {
+        self.freq_result.ok_or(Error::FrequencySensor)
     }
 }

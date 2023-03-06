@@ -10,7 +10,7 @@ use embassy_nrf::{
 };
 use embassy_time::{Duration, Timer};
 
-use crate::drivers::frequency::types::FrequencySensor;
+use crate::{drivers::frequency::types::FrequencySensor, types::Error};
 
 use types::{ProbeHardware, ProbePeripherals, ProbeSample};
 
@@ -118,10 +118,10 @@ fn moisture_from_freq(freq: u32) -> f32 {
 static PROBE_STARTUP_TIME: Duration = Duration::from_millis(20);
 static TMP_MAX_CONV_TIME: Duration = Duration::from_millis(35);
 
-pub async fn sample_soil(mut hw: ProbeHardware<'_>) -> Option<ProbeSample> {
+pub async fn sample_soil(mut hw: ProbeHardware<'_>) -> Result<ProbeSample, Error> {
     // Detect the presence of a probe before doing any other operation.
     if hw.input_probe_detect.get_level() == Level::High {
-        return None;
+        return Err(Error::ProbeDisconnected);
     }
 
     let mut tmp112_sensor = tmp1x2::Tmp1x2::new(hw.i2c_bus, tmp1x2::SlaveAddr::Default);
@@ -133,17 +133,18 @@ pub async fn sample_soil(mut hw: ProbeHardware<'_>) -> Option<ProbeSample> {
     // Start frequency measurement and also measure temperature in the meantime.
     hw.freq_sensor.start_measuring();
     Timer::after(TMP_MAX_CONV_TIME).await; // Wait 35ms
-    let temperature = tmp112_sensor.read_temperature().unwrap();
+    let temperature = tmp112_sensor
+        .read_temperature()
+        .map_err(|_| Error::ProbeI2cError)?;
     // Stop frequency measurement and get result.
     hw.freq_sensor.stop_measuring();
-    let frequency = defmt::unwrap!(hw.freq_sensor.get_frequency());
+    let frequency = hw.freq_sensor.get_frequency()?;
 
     enable_ctrl.set_low();
 
     let moisture = moisture_from_freq(frequency);
-    ProbeSample {
+    Ok(ProbeSample {
         moisture,
         temperature,
-    }
-    .into()
+    })
 }
