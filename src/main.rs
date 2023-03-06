@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 #![feature(future_join)]
+#![feature(result_flattening)]
 
 // mod ble;
 mod common;

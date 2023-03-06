@@ -7,7 +7,7 @@ use serde::{de, Deserialize, Deserializer, Serialize};
 
 pub const CRC_GSM: Crc<u16> = Crc::<u16>::new(&CRC_16_GSM);
 
-#[derive(Format, Debug, Clone)]
+#[derive(Format, Debug, Clone, Copy)]
 pub enum Error {
     /// General decoding error when trying to create a packet from raw bytes.
     PacketDecode(&'static str),
@@ -20,6 +20,11 @@ pub enum Error {
     CobsDecodeError,
     /// Probe Errors
     ProbeTimeout,
+    // Onboard sensor errors.
+    OnboardResetFailed,
+    OnboardTimeout,
+    SHTCommError,
+    OPTCommError,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

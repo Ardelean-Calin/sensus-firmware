@@ -1,7 +1,7 @@
 use defmt::Format;
 use embassy_time::{Duration, Ticker};
 
-use crate::drivers::onboard::types::{OnboardError, OnboardSample};
+use crate::drivers::onboard::types::OnboardSample;
 
 #[derive(Format)]
 pub enum OnboardSMState {
@@ -9,7 +9,6 @@ pub enum OnboardSMState {
     Start,
     Measure,
     Publish(OnboardSample),
-    Error(OnboardError),
     Sleep,
 }
 
@@ -24,10 +23,6 @@ impl OnboardSM {
             state: OnboardSMState::FirstRun,
             ticker: Ticker::every(Duration::from_secs(3)),
         }
-    }
-
-    pub fn with_state(self, state: OnboardSMState) -> Self {
-        Self { state, ..self }
     }
 
     #[allow(dead_code)]

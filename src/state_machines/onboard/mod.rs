@@ -1,78 +1,94 @@
 mod types;
 
-use defmt::unwrap;
-use embassy_time::{with_timeout, Duration, TimeoutError};
+use defmt::{error, trace};
+use embassy_time::Timer;
+use embassy_time::{with_timeout, Duration};
 use futures::StreamExt;
 
 use crate::coroutines::packet_builder::ONBOARD_DATA_SIG;
 use crate::drivers::onboard::battery;
 use crate::drivers::onboard::environment;
-use crate::drivers::onboard::types::{
-    OnboardError, OnboardHardware, OnboardPeripherals, OnboardSample,
-};
+use crate::drivers::onboard::types::{OnboardHardware, OnboardPeripherals, OnboardSample};
+use crate::types::Error;
 
 use types::{OnboardSM, OnboardSMState};
 
+/// Executes one tick of the state-machine and returns the errors if any.
+async fn tick(sm: &mut OnboardSM, per: &mut OnboardPeripherals) -> Result<(), Error> {
+    match sm.state {
+        OnboardSMState::FirstRun => {
+            let hw = OnboardHardware::from_peripherals(per);
+            environment::reset(hw.i2c_bus)?;
+            // Delay for about 10ms to ensure all I2C sensors have started up.
+            Timer::after(Duration::from_millis(10)).await;
+            sm.state = OnboardSMState::Start;
+        }
+        OnboardSMState::Start => {
+            // TODO: Get configuration data from global config
+            sm.state = OnboardSMState::Measure;
+        }
+        OnboardSMState::Measure => {
+            let sample = with_timeout(Duration::from_millis(200), async {
+                let hw = OnboardHardware::from_peripherals(per);
+
+                let environment_data =
+                    environment::sample_environment(hw.i2c_bus, hw.wait_pin).await?;
+                let battery_level = battery::sample_battery_level(hw.battery).await;
+
+                let sample = OnboardSample {
+                    environment_data,
+                    battery_level,
+                };
+
+                Ok(sample)
+            })
+            .await
+            .map_err(|_| Error::OnboardTimeout)
+            .flatten()?;
+
+            trace!("Got new INSTANTANEOUS onboard sample: {:?}", sample);
+
+            sm.state = OnboardSMState::Publish(sample);
+        }
+        OnboardSMState::Publish(sample) => {
+            ONBOARD_DATA_SIG.signal(sample);
+            sm.state = OnboardSMState::Sleep;
+        }
+        OnboardSMState::Sleep => {
+            sm.ticker.next().await;
+            sm.state = OnboardSMState::Measure;
+        }
+    };
+
+    Ok(())
+}
+
+///  Runs the onboard sensor state machine.
 pub async fn run(mut per: OnboardPeripherals) {
     let mut sm = OnboardSM::new();
     loop {
-        match sm.state {
-            OnboardSMState::FirstRun => {
-                let hw = OnboardHardware::from_peripherals(&mut per);
-                unwrap!(environment::init(hw.i2c_bus).await);
-                sm = sm.with_state(OnboardSMState::Start);
-            }
-            OnboardSMState::Start => {
-                // TODO: Get configuration data from global config
-                sm = sm.with_state(OnboardSMState::Measure);
-                // sm = sm.with_state(OnboardSMState::Sleep);
-            }
-            OnboardSMState::Measure => {
-                let res: Result<Result<OnboardSample, OnboardError>, TimeoutError> =
-                    with_timeout(Duration::from_millis(200), async {
-                        let hw = OnboardHardware::from_peripherals(&mut per);
-
-                        let environment_data =
-                            environment::sample_environment(hw.i2c_bus, hw.wait_pin)
-                                .await
-                                .map_err(OnboardError::Environment)?;
-                        let battery_level = battery::sample_battery_level(hw.battery).await;
-
-                        let sample = OnboardSample {
-                            environment_data,
-                            battery_level,
-                        };
-
-                        Ok(sample)
-                    })
-                    .await;
-
-                match res {
-                    Ok(Ok(sample)) => {
-                        sm = sm.with_state(OnboardSMState::Publish(sample));
+        let result = tick(&mut sm, &mut per).await;
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                match e {
+                    Error::OnboardResetFailed => {
+                        error!("CRITICAL! Onboard sensors Reset error.");
                     }
-                    Ok(Err(e)) => {
-                        defmt::error!("TODO. Got an error while sampling.");
-                        sm = sm.with_state(OnboardSMState::Error(e));
+                    Error::OnboardTimeout => {
+                        error!("Onboard sensors timeout error.");
                     }
-                    Err(_timeout) => {
-                        sm = sm.with_state(OnboardSMState::Error(OnboardError::Timeout));
+                    Error::SHTCommError => {
+                        error!("Error communicating with SHTC3.")
                     }
-                }
-            }
-            OnboardSMState::Publish(sample) => {
-                ONBOARD_DATA_SIG.signal(sample);
-                sm = sm.with_state(OnboardSMState::Sleep);
-            }
-            OnboardSMState::Sleep => {
-                sm.ticker.next().await;
-                sm = sm.with_state(OnboardSMState::Measure);
-                // sm = sm.with_state(OnboardSMState::Start);
-            }
-            OnboardSMState::Error(_) => {
-                // TODO. Do something in case of error.
-                defmt::error!("Onboard sensors timeout error.");
-                sm = sm.with_state(OnboardSMState::Sleep);
+                    Error::OPTCommError => {
+                        error!("Error communicating with OPT3001.")
+                    }
+                    _ => {
+                        error!("Unexpected Error: {:?}", e)
+                    }
+                };
+                sm.state = OnboardSMState::Sleep;
             }
         }
     }
