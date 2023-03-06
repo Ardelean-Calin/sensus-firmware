@@ -7,7 +7,7 @@ use embassy_nrf::{
     timerv2::{CounterType, TimerType},
 };
 
-use types::{FrequencySensor, FrequencySensorError};
+use types::FrequencySensor;
 
 use crate::types::Error;
 

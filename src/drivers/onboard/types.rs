@@ -1,6 +1,6 @@
 use super::{
     battery::types::{BatteryLevel, BatterySensor},
-    environment::types::{EnvironmentError, EnvironmentSample},
+    environment::types::EnvironmentSample,
 };
 
 use defmt::Format;
@@ -33,11 +33,4 @@ pub struct OnboardHardware<'a> {
     pub i2c_bus: BusManagerType<'a>,
     pub battery: BatterySensor<'a>,
     pub wait_pin: Input<'a, AnyPin>,
-}
-
-/// Possible error types.
-#[derive(Format)]
-pub enum OnboardError {
-    Environment(EnvironmentError),
-    Timeout,
 }

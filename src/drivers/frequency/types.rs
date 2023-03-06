@@ -1,15 +1,9 @@
-use defmt::Format;
 use embassy_nrf::{
     gpio::AnyPin,
     gpiote::{AnyChannel, InputChannel},
     ppi::{AnyConfigurableChannel, Ppi},
     timerv2::{CounterType, TimerType},
 };
-
-#[derive(Format)]
-pub enum FrequencySensorError {
-    Unknown,
-}
 
 pub struct FrequencySensor<'a> {
     pub counter: embassy_nrf::timerv2::Timer<CounterType>,

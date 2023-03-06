@@ -2,12 +2,6 @@ use core::ops::{Add, Mul, Sub};
 
 use defmt::Format;
 
-#[derive(Format)]
-pub enum EnvironmentError {
-    SHTCommError,
-    OPTCommError,
-}
-
 #[derive(Format, Clone, Copy)]
 pub struct EnvironmentSample {
     pub illuminance: f32,

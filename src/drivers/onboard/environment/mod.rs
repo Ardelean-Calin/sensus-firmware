@@ -2,12 +2,12 @@ pub mod types;
 
 use cortex_m::prelude::_embedded_hal_blocking_i2c_Write;
 use embassy_nrf::gpio::{AnyPin, Input};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::Delay;
 use opt300x_async::{IntegrationTime, Opt300x, SlaveAddr};
 
 use crate::types::Error;
 
-use self::types::{EnvironmentError, EnvironmentSample};
+use self::types::EnvironmentSample;
 
 /// Resets all onboard sensors.
 pub fn reset(i2c_bus: super::types::BusManagerType<'_>) -> Result<(), Error> {
