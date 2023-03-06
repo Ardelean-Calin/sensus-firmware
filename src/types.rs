@@ -10,8 +10,11 @@ pub const CRC_GSM: Crc<u16> = Crc::<u16>::new(&CRC_16_GSM);
 #[derive(Format, Debug, Clone, Copy)]
 pub enum Error {
     /// General decoding error when trying to create a packet from raw bytes.
-    PacketDecode(&'static str),
-    PacketCRC,
+    DfuPacketDecode(&'static str),
+    DfuPacketCRC,
+    /// DFU-related Errors
+    DfuCounterError,
+    DfuTimeout,
     /// Error at the physical layer (UART or BLE).
     UartRx,
     UartTx,
@@ -64,19 +67,20 @@ pub struct DfuHeader {
 }
 
 // NOTE: Due to postcard's limitations I cannot give them ID's unfortunately.
-// #[repr(u8)]
+#[repr(u8)]
 #[derive(Clone, Serialize, Deserialize, Format)]
 pub enum RawPacket {
     // Responses (from us to them)
-    RespOK,
-    RespNOK,
-    RespHandshake,
-    RespDfuRequestBlock,
-    RespDfuDone,
+    RespOK = 0x00,
+    RespNOK = 0x01,
+    RespHandshake = 0x02,
+    RespDfuRequestBlock = 0x03,
+    RespDfuDone = 0x04,
+    RespDfuFailed = 0x05,
     // Received packet IDs
-    RecvHandshake,
-    RecvDfuStart(DfuHeader),
-    RecvDfuBlock(DfuBlockPayload),
+    RecvHandshake = 0x06,
+    RecvDfuStart(DfuHeader) = 0x07,
+    RecvDfuBlock(DfuBlockPayload) = 0x08,
 }
 
 #[derive(Clone, Serialize)]
@@ -93,13 +97,13 @@ impl Packet {
         // Extract the checksum and check if it's a fine checksum
         let checksum = match (payload_iter.next_back(), payload_iter.next_back()) {
             (Some(byte1), Some(byte2)) => Ok(u16::from_be_bytes([*byte1, *byte2])),
-            _ => Err(Error::PacketDecode("Could not extract CRC.")),
+            _ => Err(Error::DfuPacketDecode("Could not extract CRC.")),
         }?;
         let actual_checksum = CRC_GSM.checksum(payload_iter.as_slice());
 
         // Raise an error if checksum doesn't match.
         if checksum != actual_checksum {
-            return Err(Error::PacketCRC);
+            return Err(Error::DfuPacketCRC);
         }
 
         // Checksum is fine... continue
@@ -116,6 +120,8 @@ impl Packet {
     }
 }
 
-pub static RX_BUS: PubSubChannel<ThreadModeRawMutex, Result<RawPacket, Error>, 3, 1, 1> =
+/// Used by BLE & UART to send data to the DFU State Machine. That's why we have two publishers.
+pub static RX_BUS: PubSubChannel<ThreadModeRawMutex, Result<RawPacket, Error>, 3, 1, 2> =
     PubSubChannel::new();
-pub static TX_BUS: PubSubChannel<ThreadModeRawMutex, RawPacket, 3, 1, 1> = PubSubChannel::new();
+/// Used by DFU to send data. Either via UART or BLE => that's why we have two subscribers.
+pub static TX_BUS: PubSubChannel<ThreadModeRawMutex, RawPacket, 3, 2, 1> = PubSubChannel::new();

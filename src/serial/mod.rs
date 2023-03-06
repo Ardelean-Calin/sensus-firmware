@@ -1,4 +1,4 @@
-use defmt::info;
+use defmt::trace;
 use embassy_nrf::uarte;
 use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::uarte::UarteTx;
@@ -75,7 +75,7 @@ where
     let mut buf = [0u8; 32];
     let tx_buf = to_slice_cobs(&packet, &mut buf).expect("COBS encoding error.");
 
-    info!("Sending uart packet...");
+    trace!("Sending uart packet...");
     tx.write(tx_buf).await.map_err(|_| Error::UartTx)?;
 
     Ok(())
