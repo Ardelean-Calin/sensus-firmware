@@ -1,5 +1,6 @@
 use defmt::{error, info};
 
+use crate::serial::serial_init;
 use crate::types::{RX_BUS, TX_BUS};
 use crate::PLUGGED_DETECT;
 use embassy_futures::join::join;
@@ -8,7 +9,6 @@ use embassy_nrf::interrupt;
 use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::peripherals;
 use embassy_nrf::peripherals::UARTE0;
-use embassy_nrf::uarte;
 use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::uarte::UarteTx;
 
@@ -53,19 +53,8 @@ pub async fn serial_task(
 
     run_while_plugged_in!(PLUGGED_DETECT, async {
         defmt::warn!("UART task started!");
-        // UART-related
-        let mut config = uarte::Config::default();
-        config.parity = uarte::Parity::EXCLUDED;
-        config.baudrate = uarte::Baudrate::BAUD460800;
 
-        let uart = uarte::Uarte::new(
-            &mut instance,
-            &mut uart_irq,
-            &mut pin_rx,
-            &mut pin_tx,
-            config,
-        );
-        let (mut tx, mut rx) = uart.split();
+        let (mut tx, mut rx) = serial_init(&mut instance, &mut pin_tx, &mut pin_rx, &mut uart_irq);
 
         loop {
             join(uart_rx_task(&mut rx), uart_tx_task(&mut tx)).await;

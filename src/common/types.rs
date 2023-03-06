@@ -44,6 +44,7 @@ impl<T: Copy> Filter<T> {
 
     /// Resets the filter. This way if a large break between measurements took place
     /// and we feed new data, our filter will start from new.
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.value = Default::default();
     }

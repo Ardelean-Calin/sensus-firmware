@@ -36,12 +36,11 @@ impl<'a> FrequencySensor<'a> {
         self.timer.stop();
         let cc = self.counter.cc(0).capture() as u64;
         let timer_val = self.timer.cc(0).capture() as u64;
-        let freq: u32;
-        if timer_val != 0 {
-            freq = ((cc * 1_000_000) / timer_val) as u32;
+        let freq = if timer_val != 0 {
+            ((cc * 1_000_000) / timer_val) as u32
         } else {
-            freq = 0;
-        }
+            0
+        };
         self.freq_result = Some(freq);
         // See https://infocenter.nordicsemi.com/pdf/nRF52832_Rev_2_Errata_v1.7.pdf
         // Errata No. 78

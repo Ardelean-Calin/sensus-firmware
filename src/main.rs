@@ -133,7 +133,7 @@ async fn main_task() {
     let mut magic = [0; 4];
 
     // TODO: Move to another place. Somewhere where if we got here, it is sure that the firmware is working.
-    // let _ = updater.mark_booted(&mut flash, &mut magic).await;
+    let _ = updater.mark_booted(&mut flash, &mut magic).await;
 
     // Spawn all the used tasks.
     // TODO: Only spawn the tasks AFTER configuration was loaded from nonvolatile memory.

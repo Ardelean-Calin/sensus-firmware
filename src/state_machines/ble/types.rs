@@ -5,6 +5,7 @@ pub enum BleSMState {
     WaitForAdvdata, // Waits for new advertisment data. If gotten, completes a future
     Debounce,
     Advertising,
+    #[allow(dead_code)]
     GattDisconnected,
 }
 

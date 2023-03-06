@@ -6,7 +6,8 @@ use futures::StreamExt;
 use crate::{
     coroutines::packet_builder::PROBE_DATA_SIG,
     drivers::probe::sample_soil,
-    drivers::probe::types::{ProbeError, ProbeHardware, ProbePeripherals},
+    drivers::probe::types::{ProbeHardware, ProbePeripherals},
+    types::Error,
 };
 
 use types::{ProbeSM, ProbeSMState};
@@ -38,7 +39,7 @@ pub async fn run(mut per: ProbePeripherals) {
                         sm = sm.with_state(ProbeSMState::Sleep);
                     }
                     Err(_) => {
-                        sm = sm.with_state(ProbeSMState::Error(ProbeError::TimeoutError));
+                        sm = sm.with_state(ProbeSMState::Error(Error::ProbeTimeout));
                     }
                 }
             }

@@ -136,13 +136,3 @@ impl AdvertismentData {
         Self { payload, ..self }
     }
 }
-
-// let adv_data = &mut[
-//         0x02, 0x01, raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8, // Flags
-//         0x19, 0x16, 0xD2, 0xFC, 0x40, // The BTHome AD element. Has a length of 25 bytes. 0xD2FC is the reserved UUID for BTHome
-//             // My actual data. placeholder for now. To be filled later
-//             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-//             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-//             0xFF,
-//         0x07, 0x09, b'S', b'e', b'n', b's', b'u', b's',
-//     ];

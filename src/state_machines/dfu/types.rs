@@ -1,5 +1,4 @@
 use defmt::Format;
-use heapless::Vec;
 
 #[derive(Format)]
 pub enum DfuError {
@@ -31,9 +30,5 @@ impl DfuStateMachine {
             binary_size: 0,
             state: DfuState::Idle,
         }
-    }
-
-    pub fn with_state(self, state: DfuState) -> Self {
-        Self { state, ..self }
     }
 }

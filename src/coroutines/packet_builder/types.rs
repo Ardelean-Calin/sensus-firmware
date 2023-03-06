@@ -20,6 +20,7 @@ impl Default for OnboardFilter {
 }
 
 impl OnboardFilter {
+    #[allow(dead_code)]
     pub fn new(alpha_env: f32, alpha_bat: f32) -> Self {
         OnboardFilter {
             env_filter: Filter::<EnvironmentSample>::new(alpha_env),
@@ -31,7 +32,6 @@ impl OnboardFilter {
         OnboardSample {
             environment_data: self.env_filter.feed(data.environment_data),
             battery_level: self.bat_filter.feed(data.battery_level),
-            ..data
         }
     }
 }

@@ -30,6 +30,7 @@ impl OnboardSM {
         Self { state, ..self }
     }
 
+    #[allow(dead_code)]
     pub fn with_ticker(self, ticker: Ticker) -> Self {
         Self { ticker, ..self }
     }

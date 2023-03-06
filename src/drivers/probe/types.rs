@@ -34,10 +34,3 @@ pub struct ProbeSample {
     pub moisture: f32,    // 0 - 100%
     pub temperature: f32, // °C
 }
-
-/// Possible error types.
-#[derive(Format)]
-pub enum ProbeError {
-    I2CError,
-    TimeoutError,
-}

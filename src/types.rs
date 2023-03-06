@@ -1,26 +1,25 @@
 use crc::{Crc, CRC_16_GSM};
-use defmt::{info, Format};
+use defmt::Format;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::PubSubChannel};
-use heapless::Vec;
 
 use postcard::from_bytes;
-use serde::{de, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
-use serde_repr::{Deserialize_repr, Serialize_repr};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 pub const CRC_GSM: Crc<u16> = Crc::<u16>::new(&CRC_16_GSM);
 
 #[derive(Format, Debug, Clone)]
 pub enum Error {
     /// General decoding error when trying to create a packet from raw bytes.
-    DecodeError(&'static str),
-    CrcError,
+    PacketDecode(&'static str),
+    PacketCRC,
     /// Error at the physical layer (UART or BLE).
-    UartRxError,
-    UartTxError,
+    UartRx,
+    UartTx,
     UartBufferFull,
     /// A COBS decoding error happened due to for ex. missing bytes.
     CobsDecodeError,
-    Timeout,
+    /// Probe Errors
+    ProbeTimeout,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,13 +85,13 @@ impl Packet {
         // Extract the checksum and check if it's a fine checksum
         let checksum = match (payload_iter.next_back(), payload_iter.next_back()) {
             (Some(byte1), Some(byte2)) => Ok(u16::from_be_bytes([*byte1, *byte2])),
-            _ => Err(Error::DecodeError("Could not extract CRC.")),
+            _ => Err(Error::PacketDecode("Could not extract CRC.")),
         }?;
         let actual_checksum = CRC_GSM.checksum(payload_iter.as_slice());
 
         // Raise an error if checksum doesn't match.
         if checksum != actual_checksum {
-            return Err(Error::CrcError);
+            return Err(Error::PacketCRC);
         }
 
         // Checksum is fine... continue
