@@ -28,7 +28,7 @@ pub async fn gatt_spawner(sd: &'static Softdevice, server: gatt::Server) {
         {
             Either::First(newdata) => {
                 advdata = newdata;
-                // defmt::info!("New Advdata: {:?}", advdata);
+                defmt::info!("New Advdata: {:?}", advdata);
             }
             Either::Second(_e) => {
                 defmt::info!("Gatt server terminated.");
@@ -40,11 +40,12 @@ pub async fn gatt_spawner(sd: &'static Softdevice, server: gatt::Server) {
 pub async fn run() {
     let mut sm = BleSM::new();
     let mut current_adv_data = AdvertismentData::default();
+    let mut packet_id = 0x00u8;
 
     loop {
         match sm.state {
             BleSMState::WaitForAdvdata => {
-                let payload = BLE_ADV_PKT_QUEUE.recv().await;
+                let payload = BLE_ADV_PKT_QUEUE.recv().await.with_packet_id(packet_id);
                 current_adv_data = current_adv_data.with_payload(payload);
                 sm = sm.with_state(BleSMState::Debounce);
             }
@@ -62,6 +63,7 @@ pub async fn run() {
                     }
                     Err(_e) => {
                         // Timeout occured, so we debounced the received messages. We can go to the next state.
+                        packet_id += 1;
                         sm = sm.with_state(BleSMState::Advertising);
                     }
                 }

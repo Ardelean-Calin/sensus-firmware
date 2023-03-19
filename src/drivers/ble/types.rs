@@ -35,16 +35,25 @@ pub struct AdvertismentPayload {
     pub soil_temperature: Option<bthome::fields::Temperature_100mK>,
     pub uptime: Option<bthome::fields::Count_4bytes>,
     pub plugged_in: Option<bthome::flags::Plugged_In>,
+    pub packet_id: Option<bthome::fields::PacketID>,
     // TODO. Add errors and stuff.
 }
 
 impl AdvertismentPayload {
+    pub fn with_packet_id(self, packet_id: u8) -> Self {
+        Self {
+            packet_id: Some((packet_id as f32).into()),
+            ..self
+        }
+    }
+
     pub fn with_uptime(self, uptime: Instant) -> Self {
         Self {
             uptime: Some((uptime.as_secs() as f32).into()),
             ..self
         }
     }
+
     pub fn with_onboard_data(self, data: OnboardSample) -> Self {
         Self {
             battery_level: Some(data.battery_level.value.into()),
@@ -54,6 +63,7 @@ impl AdvertismentPayload {
             ..self
         }
     }
+
     pub fn with_probe_data(self, data: ProbeSample) -> Self {
         Self {
             soil_temperature: Some(data.temperature.into()),
@@ -61,6 +71,7 @@ impl AdvertismentPayload {
             ..self
         }
     }
+
     fn length(&self) -> usize {
         bthome_length!(self.battery_level)
             + bthome_length!(self.air_temperature)
