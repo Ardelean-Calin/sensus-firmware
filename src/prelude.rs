@@ -15,16 +15,12 @@ macro_rules! run_while_plugged_in {
             let mut _sub_plugged_out = $guard.plugged_out.subscriber().unwrap();
             loop {
                 let task = $task;
-                futures::pin_mut!(task);
-
-                let guard_enter = _sub_plugged_in.next_message_pure();
                 let guard_leave = _sub_plugged_out.next_message_pure();
-                futures::pin_mut!(guard_enter);
-                futures::pin_mut!(guard_leave);
+
                 // Wait for the guard to enter our context
-                guard_enter.await;
+                _sub_plugged_in.next_message_pure().await;
                 // Once guard has entered our context, wait for it to go out of scope
-                futures::future::select(guard_leave, task).await;
+                embassy_futures::select::select(guard_leave, task).await;
             }
         }
     }};

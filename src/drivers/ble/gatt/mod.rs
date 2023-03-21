@@ -9,16 +9,16 @@ use nrf_softdevice::{
 };
 
 #[nrf_softdevice::gatt_service(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a600323d")]
-pub struct MainService {
-    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a601323d", read, notify)]
-    all_data: [u8; 14],
-    // #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a605323d", read, notify)]
-    // flags: u8, // Different flags. Charging, plugged in, etc.
+pub struct DFUService {
+    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a601323d", read)]
+    pub dfu_receive: [u8; 17], // 1 byte for enum type, 16 for payload.
+    #[characteristic(uuid = "dc7af6ef-1bf2-4722-8cbd-12e4a605323d", write, notify)]
+    pub dfu_transmit: u8, // OK/NOK for now.
 }
 
 #[nrf_softdevice::gatt_server]
 pub struct Server {
-    pub main: MainService,
+    pub dfu: DFUService,
     // control: ControlService,
 }
 
@@ -48,5 +48,12 @@ pub async fn run_gatt_server<'a>(
     conn.set_conn_params(conn_params).unwrap();
 
     // Run the GATT server on the connection. This returns when the connection gets disconnected.
-    gatt_server::run(&conn, server, |_e| {}).await
+    gatt_server::run(&conn, server, |event| match event {
+        ServerEvent::Dfu(e) => {
+            if let DFUServiceEvent::DfuTransmitCccdWrite { notifications } = e {
+                info!("Toggled notifications: {:?}", notifications)
+            }
+        }
+    })
+    .await
 }

@@ -34,6 +34,7 @@ async fn uart_tx_task(tx: &mut UarteTx<'_, UARTE0>) {
                 error!("Missed {:?} messages.", x);
             }
             embassy_sync::pubsub::WaitResult::Message(raw) => {
+                // info!("Sending packet: {:?}", raw);
                 send_packet(tx, raw).await.expect("Failed to send packet.");
             }
         }

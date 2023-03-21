@@ -4,10 +4,12 @@ pub mod types;
 use gatt::Server;
 
 use defmt::{assert_eq, *};
-use nrf_softdevice::{raw, Softdevice};
+use nrf_softdevice::{ble::Connection, raw, Softdevice};
 use raw::{sd_power_dcdc_mode_set, NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE};
 
 use core::mem;
+
+use crate::types::{RX_BUS, TX_BUS};
 
 pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
     let config = nrf_softdevice::Config {
@@ -54,4 +56,17 @@ pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
     let server = unwrap!(Server::new(sd));
 
     (sd, server)
+}
+
+async fn ble_dfu_tx(server: &Server, conn: &Connection) {
+    let mut packet_sub = TX_BUS.subscriber().expect("Error allocating subscriber!");
+    loop {
+        let packet = packet_sub.next_message_pure().await;
+        // match packet {
+        //     crate::types::RawPacket::RespOK | crate::types::RawPacket::RespNOK => {
+        //         // server.dfu.dfu_transmit_notify(conn, &(packet as u8));
+        //     }
+        //     _ => {}
+        // };
+    }
 }

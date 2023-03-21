@@ -60,6 +60,7 @@ pub async fn run(mut per: ProbePeripherals) {
             Err(e) => {
                 error!("Error sampling probe: {:?}", e);
                 // Note. Here I can match e.
+                sm.state = ProbeSMState::Sleep;
             }
         }
     }

@@ -4,23 +4,20 @@
 #![feature(future_join)]
 #![feature(result_flattening)]
 
-// mod ble;
+// Needs to come before everything.
+mod prelude;
+
 mod common;
+mod coroutines;
 mod drivers;
 mod error;
-mod prelude;
-// mod rgb;
-// mod sensors;
-mod coroutines;
 mod serial;
 mod state_machines;
 mod tasks;
 mod types;
-// mod serial;
 
 use embassy_futures::join::join;
 use nrf_softdevice::Softdevice;
-// use sensors::probe::soil::soil_sensor::ProbeData;
 
 mod custom_executor;
 
@@ -36,9 +33,12 @@ use embassy_nrf::{
     ppi::ConfigurableChannel,
     wdt::Watchdog,
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::PubSubChannel};
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex, pubsub::PubSubChannel, signal::Signal,
+};
 use futures::StreamExt;
 use nrf52832_pac as pac;
+use state_machines::dfu::types::Page;
 use static_cell::StaticCell;
 
 /// I need to create a custom executor to patch some very specific hardware bugs found on nRF52832.
@@ -176,7 +176,7 @@ async fn main_task() {
     spawner.must_spawn(tasks::soil_task(probe_per));
     spawner.must_spawn(tasks::packet_manager_task());
 
-    // TODO: This "task" can run all the time, since we want DFU to be available via Bluetooth, as
+    // This "task" can run all the time, since we want DFU to be available via Bluetooth, as
     // well.
     spawner.must_spawn(tasks::dfu_task(flash));
     spawner.must_spawn(tasks::comm_task());
@@ -187,8 +187,13 @@ async fn main_task() {
         p.P0_03.degrade(),
         p.P0_02.degrade(),
     ));
+    // spawner.must_spawn(drivers::rgb::rgb_task(
+    //     p.PWM0,
+    //     p.P0_28.degrade(),
+    //     p.P0_26.degrade(),
+    //     p.P0_27.degrade(),
+    // ));
     // TODO: move these tasks
-    // spawner.must_spawn(drivers::rgb::tasks::heartbeat_task());
     // spawner.must_spawn(drivers::rgb::tasks::rgb_task(
     //     p.PWM0,
     //     p.P0_28.degrade(),
