@@ -13,8 +13,10 @@ pub enum Error {
     DfuPacketDecode(&'static str),
     DfuPacketCRC,
     /// DFU-related Errors
+    DfuStateMachineError,
     DfuCounterError,
-    DfuTimeout,
+    DfuUnexpectedFrame,
+    CommTimeout,
     /// Error at the physical layer (UART or BLE).
     UartRx,
     UartTx,
@@ -66,21 +68,26 @@ pub struct DfuHeader {
     pub binary_size: u32,
 }
 
+pub type ResponsePayload = Option<[u8; 32]>;
+
 // NOTE: Due to postcard's limitations I cannot give them ID's unfortunately.
 #[repr(u8)]
 #[derive(Clone, Serialize, Deserialize, Format)]
 pub enum RawPacket {
-    // Responses (from us to them)
-    RespOK = 0x00,
-    RespNOK = 0x01,
-    RespHandshake = 0x02,
+    // Responses (from us to them). Only two are possible. OK and NOK. NOK cuases repeat from host.
+    RespOK(ResponsePayload) = 0x00,
+    RespNOK(ResponsePayload) = 0x01,
+    TodoRemove = 0x02,
     RespDfuRequestBlock = 0x03,
     RespDfuDone = 0x04,
     RespDfuFailed = 0x05,
     // Received packet IDs
     RecvHandshake = 0x06,
-    RecvDfuStart(DfuHeader) = 0x07,
+    RecvDfuHeader(DfuHeader) = 0x07,
     RecvDfuBlock(DfuBlockPayload) = 0x08,
+
+    RecvConfigHeader(u32) = 0x09,
+    RecvLoggingHeader(u32) = 0x0A,
 }
 
 #[derive(Clone, Serialize)]

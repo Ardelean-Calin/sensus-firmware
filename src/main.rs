@@ -179,6 +179,7 @@ async fn main_task() {
     // TODO: This "task" can run all the time, since we want DFU to be available via Bluetooth, as
     // well.
     spawner.must_spawn(tasks::dfu_task(flash));
+    spawner.must_spawn(tasks::comm_task());
 
     // Will handle UART DFU and data logging over UART.
     spawner.must_spawn(serial::tasks::serial_task(
