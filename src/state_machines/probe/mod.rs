@@ -5,9 +5,9 @@ use embassy_time::{with_timeout, Duration};
 use futures::StreamExt;
 
 use crate::{
-    coroutines::packet_builder::PROBE_DATA_SIG,
     drivers::probe::sample_soil,
     drivers::probe::types::{ProbeHardware, ProbePeripherals},
+    globals::PROBE_DATA_SIG,
     types::Error,
 };
 

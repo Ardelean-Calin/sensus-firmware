@@ -28,19 +28,16 @@ pub async fn sample_environment(
     let mut opt3001 = Opt300x::new_opt3001(i2c_bus.acquire_i2c(), SlaveAddr::Default);
     opt3001
         .set_integration_time(IntegrationTime::Ms100)
-        .map_err(|_| Error::OPTCommError)?;
+        .map_err(|_| Error::OPTComm)?;
     opt3001
         .enable_end_of_conversion_mode()
-        .map_err(|_| Error::OPTCommError)?;
+        .map_err(|_| Error::OPTComm)?;
 
-    let shtc3_result = shtc3
-        .sample(&mut Delay)
-        .await
-        .map_err(|_| Error::SHTCommError)?;
+    let shtc3_result = shtc3.sample(&mut Delay).await.map_err(|_| Error::SHTComm)?;
     let opt3001_result = opt3001
         .read_lux(&mut wait_pin)
         .await
-        .map_err(|_| Error::OPTCommError)?;
+        .map_err(|_| Error::OPTComm)?;
     let temperature = shtc3_result.temperature.as_degrees_celsius();
     let humidity = shtc3_result.humidity.as_percent();
 

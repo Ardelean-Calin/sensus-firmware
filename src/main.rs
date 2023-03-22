@@ -11,7 +11,7 @@ mod common;
 mod coroutines;
 mod drivers;
 mod error;
-mod serial;
+mod globals;
 mod state_machines;
 mod tasks;
 mod types;
@@ -33,12 +33,9 @@ use embassy_nrf::{
     ppi::ConfigurableChannel,
     wdt::Watchdog,
 };
-use embassy_sync::{
-    blocking_mutex::raw::ThreadModeRawMutex, pubsub::PubSubChannel, signal::Signal,
-};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::PubSubChannel};
 use futures::StreamExt;
 use nrf52832_pac as pac;
-use state_machines::dfu::types::Page;
 use static_cell::StaticCell;
 
 /// I need to create a custom executor to patch some very specific hardware bugs found on nRF52832.
@@ -182,7 +179,7 @@ async fn main_task() {
     spawner.must_spawn(tasks::comm_task());
 
     // Will handle UART DFU and data logging over UART.
-    spawner.must_spawn(serial::tasks::serial_task(
+    spawner.must_spawn(drivers::serial::tasks::serial_task(
         p.UARTE0,
         p.P0_03.degrade(),
         p.P0_02.degrade(),

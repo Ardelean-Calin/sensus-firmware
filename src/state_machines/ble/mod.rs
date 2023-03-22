@@ -1,17 +1,14 @@
 pub mod types;
 
 use embassy_futures::select::{select, Either};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 use embassy_time::{with_timeout, Duration};
 use nrf_softdevice::Softdevice;
 
-use crate::drivers::ble::{
-    gatt,
-    types::{AdvertismentData, AdvertismentPayload},
-};
+use crate::drivers::ble::{gatt, types::AdvertismentData};
+use crate::globals::BLE_ADV_PKT_QUEUE;
 use types::{BleSM, BleSMState};
 
-pub static BLE_ADV_PKT_QUEUE: Channel<ThreadModeRawMutex, AdvertismentPayload, 1> = Channel::new();
 /// Signals new advertising data between the two "threads".
 static ADV_DATA: Signal<ThreadModeRawMutex, AdvertismentData> = Signal::new();
 

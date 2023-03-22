@@ -5,10 +5,10 @@ use embassy_time::Timer;
 use embassy_time::{with_timeout, Duration};
 use futures::StreamExt;
 
-use crate::coroutines::packet_builder::ONBOARD_DATA_SIG;
 use crate::drivers::onboard::battery;
 use crate::drivers::onboard::environment;
 use crate::drivers::onboard::types::{OnboardHardware, OnboardPeripherals, OnboardSample};
+use crate::globals::ONBOARD_DATA_SIG;
 use crate::types::Error;
 
 use types::{OnboardSM, OnboardSMState};
@@ -78,10 +78,10 @@ pub async fn run(mut per: OnboardPeripherals) {
                     Error::OnboardTimeout => {
                         error!("Onboard sensors timeout error.");
                     }
-                    Error::SHTCommError => {
+                    Error::SHTComm => {
                         error!("Error communicating with SHTC3.")
                     }
-                    Error::OPTCommError => {
+                    Error::OPTComm => {
                         error!("Error communicating with OPT3001.")
                     }
                     _ => {

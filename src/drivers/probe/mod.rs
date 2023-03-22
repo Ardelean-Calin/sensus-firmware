@@ -135,7 +135,7 @@ pub async fn sample_soil(mut hw: ProbeHardware<'_>) -> Result<ProbeSample, Error
     Timer::after(TMP_MAX_CONV_TIME).await; // Wait 35ms
     let temperature = tmp112_sensor
         .read_temperature()
-        .map_err(|_| Error::ProbeI2cError)?;
+        .map_err(|_| Error::ProbeI2cFailed)?;
     // Stop frequency measurement and get result.
     hw.freq_sensor.stop_measuring();
     let frequency = hw.freq_sensor.get_frequency()?;

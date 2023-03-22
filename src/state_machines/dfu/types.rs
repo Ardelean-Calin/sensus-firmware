@@ -1,6 +1,8 @@
 use defmt::Format;
 use heapless::Vec;
 
+use crate::types::DfuError;
+
 #[derive(Clone, Default)]
 pub struct Page {
     pub offset: usize,
@@ -8,13 +10,6 @@ pub struct Page {
 }
 
 impl Page {
-    pub fn empty() -> Self {
-        Self {
-            offset: 0,
-            data: Vec::new(),
-        }
-    }
-
     pub fn length(&self) -> usize {
         self.data.len()
     }
@@ -28,16 +23,26 @@ impl Page {
     }
 }
 
-#[derive(Format, Clone)]
-pub enum DfuState {
-    Idle,
-    NextFrame,
-    Done,
-}
-
 pub struct DfuStateMachine {
     pub frame_counter: u8,
     pub binary_size: usize,
-    pub page: Page,
     pub state: DfuState,
+}
+
+impl DfuStateMachine {
+    pub fn new() -> Self {
+        DfuStateMachine {
+            frame_counter: 0,
+            binary_size: 0,
+            state: DfuState::Idle,
+        }
+    }
+}
+
+#[derive(Format, Clone)]
+pub enum DfuState {
+    Idle,
+    WaitBlock,
+    Error(DfuError),
+    Done,
 }

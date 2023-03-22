@@ -9,7 +9,7 @@ use raw::{sd_power_dcdc_mode_set, NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE};
 
 use core::mem;
 
-use crate::types::{RX_BUS, TX_BUS};
+use crate::globals::{RX_BUS, TX_BUS};
 
 pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
     let config = nrf_softdevice::Config {

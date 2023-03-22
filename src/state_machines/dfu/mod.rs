@@ -2,91 +2,110 @@ pub mod types;
 
 use defmt::error;
 use defmt::info;
-
 use defmt::trace;
-use defmt::warn;
-use embassy_boot_nrf::FirmwareUpdater;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::pubsub::DynPublisher;
-use embassy_sync::pubsub::DynSubscriber;
-use embassy_sync::signal::Signal;
-use embassy_time::with_timeout;
-use embassy_time::Duration;
-use embassy_time::Timer;
-use nrf_softdevice::Flash;
 
-use crate::tasks::FLASH_BUS;
-use crate::types::DfuHeader;
-use crate::types::Error;
-use crate::types::RawPacket;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::signal::Signal;
+
+use crate::globals::DFU_SIG_DONE;
+use crate::globals::{DFU_SIG_FLASHED, DFU_SIG_NEW_PAGE, GLOBAL_PAGE};
+use crate::types::CommResponse;
+use crate::types::DfuError;
+use crate::types::DfuOkType;
+use crate::types::DfuPayload;
+use crate::types::ResponseTypeErr;
+use crate::types::ResponseTypeOk;
 
 use self::types::DfuState;
 use self::types::DfuStateMachine;
-use self::types::Page;
 
-impl DfuStateMachine {
-    pub fn new() -> Self {
-        DfuStateMachine {
-            frame_counter: 0,
-            binary_size: 0,
-            page: Page::empty(),
-            state: DfuState::Idle,
-        }
-    }
+static INPUT_SIG: Signal<ThreadModeRawMutex, DfuPayload> = Signal::new();
+static OUTPUT_SIG: Signal<ThreadModeRawMutex, CommResponse> = Signal::new();
 
-    pub fn init(&mut self, header: DfuHeader) {
-        info!("Got the following binary size:");
-        info!("  binary size: {:#04x}", header.binary_size);
-        self.binary_size = header.binary_size as usize;
-        // Wait for the first frame.
-        self.state = DfuState::NextFrame;
-    }
-
-    pub async fn tick(&mut self, packet: RawPacket) -> Result<DfuState, Error> {
-        match self.state {
+pub async fn run() {
+    let mut sm = DfuStateMachine::new();
+    loop {
+        match sm.state {
             DfuState::Idle => {
-                error!("DFU StateMachine should not tick while IDLE.");
-                return Err(Error::DfuStateMachineError);
+                match INPUT_SIG.wait().await {
+                    DfuPayload::Header(h) => {
+                        info!("Got the following binary size:");
+                        info!("  binary size: {:#04x}", h.binary_size);
+                        sm.binary_size = h.binary_size as usize;
+                        // Wait for the first frame.
+                        sm.state = DfuState::WaitBlock;
+                        // Send an OK.
+                        OUTPUT_SIG
+                            .signal(CommResponse::OK(ResponseTypeOk::Dfu(DfuOkType::NextFrame)));
+                    }
+                    DfuPayload::RequestFwVersion => {
+                        sm.state = DfuState::Idle;
+                        OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(
+                            DfuOkType::FirmwareVersion([0xAA, 0xBB, 0xCC, 0xDD, 0xCA, 0xFE]),
+                        )))
+                    }
+                    _ => {
+                        sm.state = DfuState::Error(DfuError::StateMachineError);
+                    }
+                };
             }
-            DfuState::NextFrame => {
-                if let RawPacket::RecvDfuBlock(block_data) = packet {
-                    trace!("Received frame {:?}", block_data.counter);
-                    if block_data.counter == self.frame_counter {
-                        self.page
-                            .data
-                            .extend_from_slice(&block_data.data)
+            DfuState::WaitBlock => {
+                if let DfuPayload::Block(b) = INPUT_SIG.wait().await {
+                    trace!("Received frame {:?}", b.counter);
+                    if b.counter == sm.frame_counter {
+                        let mut page = GLOBAL_PAGE.lock().await;
+                        page.data
+                            .extend_from_slice(&b.data)
                             .expect("Page full. Is the block size a divisor of 4096?");
 
-                        if self.page.is_full() {
-                            FLASH_BUS.signal(self.page.clone());
-                            Timer::after(Duration::from_millis(250)).await;
-                            self.page.clear_data();
-                            self.page.offset += 4096;
+                        if page.is_full() {
+                            // We need to free the mutex.
+                            core::mem::drop(page);
 
-                            if self.page.offset >= self.binary_size {
+                            DFU_SIG_NEW_PAGE.signal(true);
+                            DFU_SIG_FLASHED.wait().await;
+
+                            let mut page = GLOBAL_PAGE.lock().await;
+                            page.clear_data();
+                            page.offset += 4096;
+
+                            if page.offset >= sm.binary_size {
                                 // DFU Done.
-                                self.state = DfuState::Done;
+                                sm.state = DfuState::Done;
+                                continue;
                             } else {
-                                self.state = DfuState::NextFrame;
+                                sm.state = DfuState::WaitBlock;
                             }
                         }
 
-                        self.frame_counter += 1;
+                        sm.frame_counter += 1;
+                        OUTPUT_SIG
+                            .signal(CommResponse::OK(ResponseTypeOk::Dfu(DfuOkType::NextFrame)));
                     } else {
-                        error!("{:?}\t{:?}", block_data.counter, self.frame_counter);
-                        // Communication error. Aborting DFU.
-                        return Err(Error::DfuCounterError);
+                        error!("{:?}\t{:?}", b.counter, sm.frame_counter);
+                        sm.state = DfuState::Error(DfuError::CounterError);
                     }
-                } else {
-                    // Got unexpected frame.
-                    return Err(Error::DfuUnexpectedFrame);
                 }
             }
             DfuState::Done => {
-                error!("Should not have gotten here.");
+                info!("DFU DONE!");
+                OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(DfuOkType::DfuDone)));
+                // Will cause a reset.
+                DFU_SIG_DONE.signal(true);
+                sm.state = DfuState::Idle;
             }
-        };
-
-        Ok(self.state.clone())
+            DfuState::Error(e) => {
+                sm.state = DfuState::Idle;
+                OUTPUT_SIG.signal(CommResponse::NOK(ResponseTypeErr::Dfu(e)));
+            }
+        }
     }
+}
+
+/// Feeds a newly received DFU Payload to the DFU state machine always running in the background.
+pub async fn process_payload(payload: DfuPayload) -> CommResponse {
+    INPUT_SIG.signal(payload);
+
+    let response = OUTPUT_SIG.wait().await;
+    response
 }

@@ -1,7 +1,7 @@
 use defmt::{error, info};
 
-use crate::serial::serial_init;
-use crate::types::{RX_BUS, TX_BUS};
+use crate::drivers::serial::serial_init;
+use crate::globals::{RX_BUS, TX_BUS};
 use crate::PLUGGED_DETECT;
 use embassy_futures::join::join;
 use embassy_nrf::gpio::AnyPin;
@@ -12,7 +12,7 @@ use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::uarte::UarteTx;
 
-use super::{recv_packet, send_packet};
+use super::{recv_packet, send_response};
 
 async fn uart_rx_task(rx: &mut UarteRx<'_, UARTE0>) {
     loop {
@@ -35,7 +35,9 @@ async fn uart_tx_task(tx: &mut UarteTx<'_, UARTE0>) {
             }
             embassy_sync::pubsub::WaitResult::Message(raw) => {
                 // info!("Sending packet: {:?}", raw);
-                send_packet(tx, raw).await.expect("Failed to send packet.");
+                send_response(tx, raw)
+                    .await
+                    .expect("Failed to send packet.");
             }
         }
     }
