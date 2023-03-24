@@ -60,20 +60,6 @@ pub enum UartError {
     UartBufferFull,
 }
 
-#[derive(Format, Debug, Clone, Copy)]
-pub enum Error {
-    /// Probe Errors
-    ProbeTimeout,
-    ProbeDisconnected,
-    ProbeI2cFailed,
-    FrequencySensor,
-    // Onboard sensor errors.
-    OnboardResetFailed,
-    OnboardTimeout,
-    SHTComm,
-    OPTComm,
-}
-
 #[repr(C)]
 #[derive(Serialize, Deserialize, Clone, Format)]
 pub struct ConfigHeader {

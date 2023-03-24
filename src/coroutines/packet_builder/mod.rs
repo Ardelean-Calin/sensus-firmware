@@ -1,12 +1,10 @@
-pub mod types;
-use types::OnboardFilter;
+use crate::sensors::types::OnboardFilter;
+use crate::sensors::types::ProbeFilter;
 
 use embassy_futures::select::{select, Either};
 use embassy_time::Instant;
 
 use crate::ble::types::AdvertismentPayload;
-use crate::common::types::Filter;
-use crate::drivers::probe::types::ProbeSample;
 use crate::globals::{BLE_ADV_PKT_QUEUE, ONBOARD_DATA_SIG, PROBE_DATA_SIG};
 use crate::PLUGGED_IN_FLAG;
 
@@ -14,7 +12,7 @@ pub async fn run() {
     let mut adv_payload = AdvertismentPayload::default();
 
     let mut onboard_filter = OnboardFilter::default();
-    let mut probe_filter = Filter::<ProbeSample>::default();
+    let mut probe_filter = ProbeFilter::default();
 
     loop {
         // Wait for either new onboard data or new probe data.

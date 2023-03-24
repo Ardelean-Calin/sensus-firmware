@@ -9,7 +9,7 @@ use embassy_nrf::{
 
 use types::FrequencySensor;
 
-use crate::types::Error;
+use crate::sensors::types::Error;
 
 impl<'a> FrequencySensor<'a> {
     pub fn new(

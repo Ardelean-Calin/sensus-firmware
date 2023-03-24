@@ -1,26 +1,25 @@
 use defmt::Format;
 use embassy_time::{Duration, Ticker};
 
-use crate::drivers::onboard::types::OnboardSample;
+use crate::sensors::types::ProbeSample;
 
 #[derive(Format)]
-pub enum OnboardSMState {
-    FirstRun,
+pub enum ProbeSMState {
     Start,
     Measure,
-    Publish(OnboardSample),
+    Publish(ProbeSample),
     Sleep,
 }
 
-pub struct OnboardSM {
-    pub state: OnboardSMState,
+pub struct ProbeSM {
+    pub state: ProbeSMState,
     pub ticker: Ticker,
 }
 
-impl OnboardSM {
+impl ProbeSM {
     pub fn new() -> Self {
-        OnboardSM {
-            state: OnboardSMState::FirstRun,
+        ProbeSM {
+            state: ProbeSMState::Start,
             ticker: Ticker::every(Duration::from_secs(10)),
         }
     }

@@ -2,9 +2,10 @@ pub mod battery;
 pub mod environment;
 pub mod types;
 
+use crate::sensors::types::OnboardPeripherals;
 use battery::types::BatterySensor;
 use embassy_nrf::{gpio::Input, saadc, twim};
-use types::{OnboardHardware, OnboardPeripherals};
+use types::OnboardHardware;
 
 impl<'a> OnboardHardware<'a> {
     pub fn from_peripherals(per: &'a mut OnboardPeripherals) -> OnboardHardware {

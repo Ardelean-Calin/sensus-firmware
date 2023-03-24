@@ -6,8 +6,8 @@ use embassy_sync::signal::Signal;
 use heapless::Vec;
 
 use crate::ble::types::AdvertismentPayload;
-use crate::drivers::onboard::types::OnboardSample;
-use crate::drivers::probe::types::ProbeSample;
+use crate::sensors::types::OnboardSample;
+use crate::sensors::types::ProbeSample;
 use crate::state_machines::dfu::types::Page;
 use crate::types::{CommPacket, CommResponse, PacketError};
 

@@ -1,6 +1,6 @@
 use defmt::{error, info};
 
-use crate::drivers::serial::serial_init;
+use super::serial_init;
 use crate::globals::{RX_BUS, TX_BUS};
 use crate::PLUGGED_DETECT;
 use embassy_futures::join::join;

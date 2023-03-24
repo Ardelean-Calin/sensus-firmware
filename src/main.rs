@@ -9,10 +9,13 @@ mod prelude;
 
 mod ble;
 mod common;
+mod config;
 mod coroutines;
-mod drivers;
+mod dfu;
 mod error;
 mod globals;
+mod sensors;
+mod serial;
 mod state_machines;
 mod tasks;
 mod types;
@@ -148,7 +151,7 @@ async fn main_task() {
     adc_irq.set_priority(interrupt::Priority::P7);
     let i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
     i2c_irq.set_priority(interrupt::Priority::P7);
-    let onboard_per = drivers::onboard::types::OnboardPeripherals {
+    let onboard_per = sensors::types::OnboardPeripherals {
         pin_sda: p.P0_06.degrade(),       // SDA
         pin_scl: p.P0_08.degrade(),       // SCL
         pin_interrupt: p.P0_07.degrade(), // INT
@@ -157,12 +160,12 @@ async fn main_task() {
         adc_irq,                          // used SAADC interrupt
         i2c_irq,                          // used I2c interrupt
     };
-    spawner.must_spawn(tasks::onboard_task(onboard_per));
+    spawner.must_spawn(sensors::onboard_task(onboard_per));
 
     // Soil sensor aquisition task.
     let i2c_irq = interrupt::take!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
     i2c_irq.set_priority(interrupt::Priority::P7);
-    let probe_per = drivers::probe::types::ProbePeripherals {
+    let probe_per = sensors::types::ProbePeripherals {
         pin_probe_detect: p.P0_20.degrade(),     // probe_detect
         pin_probe_enable: p.P0_11.degrade(),     // probe_enable
         pin_probe_sda: p.P0_14.degrade(),        // SDA
@@ -173,16 +176,16 @@ async fn main_task() {
         instance_ppi: p.PPI_CH0.degrade(),       // PPI channel
         i2c_irq,                                 // I2C interrupt
     };
-    spawner.must_spawn(tasks::soil_task(probe_per));
+    spawner.must_spawn(sensors::soil_task(probe_per));
     spawner.must_spawn(tasks::packet_manager_task());
 
     // This "task" can run all the time, since we want DFU to be available via Bluetooth, as
     // well.
-    spawner.must_spawn(tasks::dfu_task(flash));
+    spawner.must_spawn(dfu::dfu_task(flash));
     spawner.must_spawn(tasks::comm_task());
 
     // Will handle UART DFU and data logging over UART.
-    spawner.must_spawn(drivers::serial::tasks::serial_task(
+    spawner.must_spawn(serial::tasks::serial_task(
         p.UARTE0,
         p.P0_03.degrade(),
         p.P0_02.degrade(),

@@ -2,6 +2,10 @@ pub mod types;
 
 use core::ops::{Add, Mul, Sub};
 
+use crate::sensors::drivers::frequency::types::FrequencySensor;
+use crate::sensors::types::Error;
+use crate::sensors::types::ProbePeripherals;
+use crate::sensors::types::ProbeSample;
 use embassy_nrf::{
     gpio::{Input, Level, Output, Pull},
     gpiote::InputChannel,
@@ -10,9 +14,7 @@ use embassy_nrf::{
 };
 use embassy_time::{Duration, Timer};
 
-use crate::{drivers::frequency::types::FrequencySensor, types::Error};
-
-use types::{ProbeHardware, ProbePeripherals, ProbeSample};
+use types::ProbeHardware;
 
 // Necessary implementations to be able to filter the data.
 impl Add for ProbeSample {

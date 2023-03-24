@@ -5,7 +5,7 @@ use embassy_nrf::gpio::{AnyPin, Input};
 use embassy_time::Delay;
 use opt300x_async::{IntegrationTime, Opt300x, SlaveAddr};
 
-use crate::types::Error;
+use crate::sensors::types::Error;
 
 use self::types::EnvironmentSample;
 

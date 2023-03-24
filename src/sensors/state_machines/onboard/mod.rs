@@ -5,11 +5,13 @@ use embassy_time::Timer;
 use embassy_time::{with_timeout, Duration};
 use futures::StreamExt;
 
-use crate::drivers::onboard::battery;
-use crate::drivers::onboard::environment;
-use crate::drivers::onboard::types::{OnboardHardware, OnboardPeripherals, OnboardSample};
 use crate::globals::ONBOARD_DATA_SIG;
-use crate::types::Error;
+use crate::sensors::drivers::onboard::battery;
+use crate::sensors::drivers::onboard::environment;
+use crate::sensors::drivers::onboard::types::OnboardHardware;
+use crate::sensors::types::Error;
+use crate::sensors::types::OnboardPeripherals;
+use crate::sensors::types::OnboardSample;
 
 use types::{OnboardSM, OnboardSMState};
 
