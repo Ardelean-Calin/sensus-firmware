@@ -77,7 +77,7 @@ where
 
     let packet: CommPacket =
         from_bytes_cobs(&mut raw_data).map_err(|_| PacketError::DeserializationError)?;
-    // TODO. Check CRC.
+
     // Extract the checksum and check if it's a fine checksum
     let checksum = packet.crc;
     let actual_checksum = calculate_checksum(&packet.payload)?;

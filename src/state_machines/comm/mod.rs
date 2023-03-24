@@ -19,7 +19,7 @@ pub async fn run() {
                 let response: CommResponse = match packet.payload {
                     crate::types::CommPacketType::DfuPacket(payload) => {
                         // Feed to DFU state machine for processing.
-                        crate::state_machines::dfu::process_payload(payload).await
+                        crate::dfu::process_payload(payload).await
                     }
                 };
 

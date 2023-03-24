@@ -11,7 +11,7 @@ pub enum PacketError {
     PacketCRC,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Format, Clone)]
 pub enum CommResponse {
     OK(ResponseTypeOk),
     NOK(ResponseTypeErr),
@@ -23,7 +23,7 @@ pub enum CommResponse {
 //         Config,
 //         Log,}
 // }
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Format, Clone)]
 pub enum ResponseTypeOk {
     NoData,
     Dfu(DfuOkType),
@@ -31,13 +31,13 @@ pub enum ResponseTypeOk {
     Log,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Format, Clone)]
 pub enum ResponseTypeErr {
     Packet(PacketError),
     Dfu(DfuError),
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Format, Clone)]
 pub enum DfuOkType {
     FirmwareVersion([u8; 6]),
     NextFrame,

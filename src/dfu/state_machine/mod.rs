@@ -4,9 +4,6 @@ use defmt::error;
 use defmt::info;
 use defmt::trace;
 
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::signal::Signal;
-
 use crate::globals::DFU_SIG_DONE;
 use crate::globals::{DFU_SIG_FLASHED, DFU_SIG_NEW_PAGE, GLOBAL_PAGE};
 use crate::types::CommResponse;
@@ -19,8 +16,8 @@ use crate::types::ResponseTypeOk;
 use self::types::DfuState;
 use self::types::DfuStateMachine;
 
-static INPUT_SIG: Signal<ThreadModeRawMutex, DfuPayload> = Signal::new();
-static OUTPUT_SIG: Signal<ThreadModeRawMutex, CommResponse> = Signal::new();
+use super::INPUT_SIG;
+use super::OUTPUT_SIG;
 
 pub async fn run() {
     let mut sm = DfuStateMachine::new();
@@ -100,12 +97,4 @@ pub async fn run() {
             }
         }
     }
-}
-
-/// Feeds a newly received DFU Payload to the DFU state machine always running in the background.
-pub async fn process_payload(payload: DfuPayload) -> CommResponse {
-    INPUT_SIG.signal(payload);
-
-    let response = OUTPUT_SIG.wait().await;
-    response
 }
