@@ -1,25 +1,15 @@
 use defmt::Format;
 
-use crate::types::DfuError;
+use crate::dfu::types::DfuError;
 
 pub struct DfuStateMachine {
     pub frame_counter: u8,
     pub binary_size: usize,
-    pub state: DfuState,
-}
-
-impl DfuStateMachine {
-    pub fn new() -> Self {
-        DfuStateMachine {
-            frame_counter: 0,
-            binary_size: 0,
-            state: DfuState::Idle,
-        }
-    }
+    pub state: DfuSmState,
 }
 
 #[derive(Format, Clone)]
-pub enum DfuState {
+pub enum DfuSmState {
     Idle,
     WaitBlock,
     Error(DfuError),

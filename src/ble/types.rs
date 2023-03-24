@@ -7,9 +7,7 @@ use bthome::{self, BTHome};
 use defmt::{unwrap, Format};
 
 use crate::{
-    bthome_length,
-    drivers::{onboard::types::OnboardSample, probe::types::ProbeSample},
-    extend_if_some,
+    bthome_length, extend_if_some, sensors::types::OnboardSample, sensors::types::ProbeSample,
 };
 
 #[derive(Default, Format, Clone, Copy)]

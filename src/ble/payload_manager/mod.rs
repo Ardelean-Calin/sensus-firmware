@@ -1,3 +1,4 @@
+use crate::power_manager::PLUGGED_IN_FLAG;
 use crate::sensors::types::OnboardFilter;
 use crate::sensors::types::ProbeFilter;
 
@@ -6,9 +7,10 @@ use embassy_time::Instant;
 
 use crate::ble::types::AdvertismentPayload;
 use crate::globals::{BLE_ADV_PKT_QUEUE, ONBOARD_DATA_SIG, PROBE_DATA_SIG};
-use crate::PLUGGED_IN_FLAG;
 
-pub async fn run() {
+/// This loop receives data from different parts of the program and packs this data
+/// into an AdvertismentPayload. Then it sends this payload to be processed.
+async fn payload_mgr_loop() {
     let mut adv_payload = AdvertismentPayload::default();
 
     let mut onboard_filter = OnboardFilter::default();
@@ -34,4 +36,9 @@ pub async fn run() {
         // This call is debounced by the BLE state machine.
         BLE_ADV_PKT_QUEUE.send(adv_payload).await;
     }
+}
+
+#[embassy_executor::task]
+pub async fn payload_mgr_task() {
+    payload_mgr_loop().await;
 }

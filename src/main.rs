@@ -8,19 +8,16 @@
 mod prelude;
 
 mod ble;
+mod comm_manager;
 mod common;
 mod config;
-mod coroutines;
 mod dfu;
 mod error;
 mod globals;
+mod power_manager;
 mod sensors;
 mod serial;
-mod state_machines;
-mod tasks;
 mod types;
-
-use core::sync::atomic::AtomicBool;
 
 use embassy_futures::join::join;
 use nrf_softdevice::Softdevice;
@@ -32,14 +29,13 @@ use defmt::info;
 use embassy_boot_nrf::FirmwareUpdater;
 use embassy_executor::Spawner;
 use embassy_nrf::{
-    gpio::{AnyPin, Input, Pin, Pull},
+    gpio::Pin,
     gpiote::Channel,
     interrupt::{self, InterruptExt},
     peripherals,
     ppi::ConfigurableChannel,
     wdt::Watchdog,
 };
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, pubsub::PubSubChannel};
 use futures::StreamExt;
 use nrf52832_pac as pac;
 use static_cell::StaticCell;
@@ -144,7 +140,7 @@ async fn main_task() {
     spawner.must_spawn(watchdog_task(p.WDT)); // This has to be the first one.
 
     spawner.must_spawn(softdevice_task(sd));
-    spawner.must_spawn(power_state_task(p.P0_04.degrade()));
+    spawner.must_spawn(power_manager::power_state_task(p.P0_04.degrade()));
 
     // Onboard sensor aquisition task.
     let adc_irq = interrupt::take!(SAADC);
@@ -177,12 +173,12 @@ async fn main_task() {
         i2c_irq,                                 // I2C interrupt
     };
     spawner.must_spawn(sensors::soil_task(probe_per));
-    spawner.must_spawn(tasks::packet_manager_task());
+    spawner.must_spawn(ble::payload_manager::payload_mgr_task());
 
     // This "task" can run all the time, since we want DFU to be available via Bluetooth, as
     // well.
     spawner.must_spawn(dfu::dfu_task(flash));
-    spawner.must_spawn(tasks::comm_task());
+    spawner.must_spawn(comm_manager::comm_task());
 
     // Will handle UART DFU and data logging over UART.
     spawner.must_spawn(serial::tasks::serial_task(
@@ -209,43 +205,6 @@ async fn main_task() {
         ble::state_machines::run(),
     )
     .await;
-}
-
-struct PowerDetect {
-    plugged_in: PubSubChannel<ThreadModeRawMutex, bool, 1, 2, 1>,
-    plugged_out: PubSubChannel<ThreadModeRawMutex, bool, 1, 2, 1>,
-}
-
-static PLUGGED_DETECT: PowerDetect = PowerDetect {
-    plugged_in: PubSubChannel::new(),
-    plugged_out: PubSubChannel::new(),
-};
-
-pub static PLUGGED_IN_FLAG: AtomicBool = AtomicBool::new(false);
-
-#[embassy_executor::task]
-async fn power_state_task(monitor_pin: AnyPin) {
-    let mut plugged_detect = Input::new(monitor_pin, Pull::Down);
-    loop {
-        plugged_detect.wait_for_high().await;
-        info!("Plugged in");
-        PLUGGED_IN_FLAG.store(true, core::sync::atomic::Ordering::Relaxed);
-        PLUGGED_DETECT
-            .plugged_in
-            .publisher()
-            .unwrap()
-            .publish(true)
-            .await;
-        plugged_detect.wait_for_low().await;
-        info!("Plugged out");
-        PLUGGED_IN_FLAG.store(false, core::sync::atomic::Ordering::Relaxed);
-        PLUGGED_DETECT
-            .plugged_out
-            .publisher()
-            .unwrap()
-            .publish(true)
-            .await;
-    }
 }
 
 #[embassy_executor::task]

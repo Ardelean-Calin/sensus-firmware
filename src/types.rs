@@ -2,6 +2,8 @@ use defmt::Format;
 
 use serde::{Deserialize, Serialize};
 
+use crate::dfu::types::{DfuError, DfuPayload};
+
 #[derive(Format, Clone, Serialize)]
 pub enum PacketError {
     /// Error with the physical reception of bytes. For example due to noise on UART.
@@ -44,13 +46,6 @@ pub enum DfuOkType {
     DfuDone,
 }
 
-#[derive(Serialize, Clone, Format)]
-pub enum DfuError {
-    StateMachineError,
-    CounterError,
-    UnexpectedFrame,
-}
-
 #[allow(clippy::enum_variant_names)]
 #[derive(Format, Debug, Clone, Copy)]
 pub enum UartError {
@@ -80,23 +75,4 @@ pub enum CommPacketType {
     DfuPacket(DfuPayload),
     // LogPacket(LogPayload),
     // ConfigPacket(ConfigPayload),
-}
-
-#[derive(Clone, Serialize, Deserialize, Format)]
-pub enum DfuPayload {
-    Header(DfuHeader),
-    Block(DfuBlock),
-    RequestFwVersion,
-}
-
-#[derive(Deserialize, Serialize, Clone, Format)]
-pub struct DfuHeader {
-    #[serde(with = "postcard::fixint::le")]
-    pub binary_size: u32,
-}
-
-#[derive(Clone, Serialize, Deserialize, Format)]
-pub struct DfuBlock {
-    pub counter: u8,
-    pub data: [u8; 32],
 }

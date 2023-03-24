@@ -9,6 +9,7 @@ mod macros;
 
 // Public modules
 pub mod coroutines;
+pub mod payload_manager;
 pub mod state_machines;
 pub mod types;
 

@@ -2,7 +2,8 @@ use defmt::{error, info};
 
 use super::serial_init;
 use crate::globals::{RX_BUS, TX_BUS};
-use crate::PLUGGED_DETECT;
+use crate::power_manager::PLUGGED_DETECT;
+use crate::run_while_plugged_in;
 use embassy_futures::join::join;
 use embassy_nrf::gpio::AnyPin;
 use embassy_nrf::interrupt;

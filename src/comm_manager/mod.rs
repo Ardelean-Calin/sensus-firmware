@@ -1,11 +1,9 @@
-mod types;
-
 use crate::globals::{RX_BUS, TX_BUS};
 use crate::types::{CommResponse, ResponseTypeErr};
 
-/// This is the main Communication State Machine. It handles everything communication-related.
+/// This is the main Communication loop. It handles everything communication-related.
 /// Data comes in via a subscriber and gets sent away via a publisher.
-pub async fn run() {
+async fn comm_mgr_loop() {
     let mut data_rx = RX_BUS
         .dyn_subscriber()
         .expect("Failed to acquire subscriber.");
@@ -33,4 +31,9 @@ pub async fn run() {
             }
         }
     }
+}
+
+#[embassy_executor::task]
+pub async fn comm_task() {
+    comm_mgr_loop().await;
 }
