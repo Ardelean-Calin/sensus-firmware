@@ -21,7 +21,7 @@ impl OnboardSM {
     pub fn new() -> Self {
         OnboardSM {
             state: OnboardSMState::FirstRun,
-            ticker: Ticker::every(Duration::from_secs(3)),
+            ticker: Ticker::every(Duration::from_secs(10)),
         }
     }
 

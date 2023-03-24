@@ -1,39 +1,15 @@
 pub mod types;
 
-use embassy_futures::select::{select, Either};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 use embassy_time::{with_timeout, Duration};
-use nrf_softdevice::Softdevice;
 
-use crate::drivers::ble::{gatt, types::AdvertismentData};
 use crate::globals::BLE_ADV_PKT_QUEUE;
 use types::{BleSM, BleSMState};
 
-/// Signals new advertising data between the two "threads".
-static ADV_DATA: Signal<ThreadModeRawMutex, AdvertismentData> = Signal::new();
+use crate::ble::types::AdvertismentData;
+use crate::ble::ADV_DATA;
 
-pub async fn gatt_spawner(sd: &'static Softdevice, server: gatt::Server) {
-    let mut advdata = AdvertismentData::default();
-    loop {
-        let advdata_vec = advdata.as_vec();
-
-        match select(
-            ADV_DATA.wait(),
-            gatt::run_gatt_server(sd, &server, advdata_vec),
-        )
-        .await
-        {
-            Either::First(newdata) => {
-                advdata = newdata;
-                // defmt::info!("New Advdata: {:?}", advdata);
-            }
-            Either::Second(_e) => {
-                defmt::info!("Gatt server terminated.");
-            }
-        }
-    }
-}
-
+/// Runst the Bluetooth state machine. This state machine waits for new data to be published and publishes said data
+/// via Extended Advertisments.
 pub async fn run() {
     let mut sm = BleSM::new();
     let mut current_adv_data = AdvertismentData::default();
@@ -66,7 +42,7 @@ pub async fn run() {
                 }
             }
             BleSMState::Advertising => {
-                ADV_DATA.signal(current_adv_data);
+                ADV_DATA.signal(current_adv_data.clone());
                 sm = sm.with_state(BleSMState::WaitForAdvdata);
             }
             BleSMState::GattDisconnected => {

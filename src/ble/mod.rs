@@ -1,17 +1,23 @@
-pub mod gatt;
-pub mod types;
-
-use gatt::Server;
-
-use defmt::{assert_eq, *};
-use nrf_softdevice::{ble::Connection, raw, Softdevice};
-use raw::{sd_power_dcdc_mode_set, NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE};
-
 use core::mem;
 
-use crate::globals::{RX_BUS, TX_BUS};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
+use nrf_softdevice::raw;
+use nrf_softdevice::Softdevice;
 
-pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
+// Private modules
+mod macros;
+
+// Public modules
+pub mod coroutines;
+pub mod state_machines;
+pub mod types;
+
+// Synchronization variables
+/// Synchronizes new advertising data between state machine and advertising loop.
+static ADV_DATA: Signal<ThreadModeRawMutex, types::AdvertismentData> = Signal::new();
+
+/// Configures BLE and returns a reference to the SoftDevice.
+pub fn configure_ble<'a>() -> &'a mut Softdevice {
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
             source: raw::NRF_CLOCK_LF_SRC_XTAL as u8,
@@ -49,24 +55,10 @@ pub fn configure_ble<'a>() -> (&'a mut Softdevice, Server) {
     let sd = Softdevice::enable(&config);
     // Enable DC/DC converter for the Softdevice.
     unsafe {
-        let ret = sd_power_dcdc_mode_set(NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE as u8);
+        let ret =
+            raw::sd_power_dcdc_mode_set(raw::NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE as u8);
         assert_eq!(ret, 0, "Error when enabling DC/DC converter: {}", ret);
     }
 
-    let server = unwrap!(Server::new(sd));
-
-    (sd, server)
-}
-
-async fn ble_dfu_tx(server: &Server, conn: &Connection) {
-    let mut packet_sub = TX_BUS.subscriber().expect("Error allocating subscriber!");
-    loop {
-        let packet = packet_sub.next_message_pure().await;
-        // match packet {
-        //     crate::types::RawPacket::RespOK | crate::types::RawPacket::RespNOK => {
-        //         // server.dfu.dfu_transmit_notify(conn, &(packet as u8));
-        //     }
-        //     _ => {}
-        // };
-    }
+    sd
 }

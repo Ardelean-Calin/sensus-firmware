@@ -1,29 +1,16 @@
+use core::str::FromStr;
+
 use embassy_time::Instant;
-use heapless::Vec;
+use heapless::{String, Vec};
 
 use bthome::{self, BTHome};
 use defmt::{unwrap, Format};
 
-use crate::drivers::{onboard::types::OnboardSample, probe::types::ProbeSample};
-
-macro_rules! bthome_length {
-    ($field:expr) => {
-        if let Some(f) = $field.as_ref() {
-            f.length()
-        } else {
-            0
-        }
-    };
-}
-
-macro_rules! extend_if_some {
-    ($dest:expr, $field:expr) => {
-        if let Some(mut field) = $field {
-            let arr = defmt::unwrap!(field.as_vec());
-            defmt::unwrap!($dest.extend_from_slice(arr.as_slice()));
-        }
-    };
-}
+use crate::{
+    bthome_length,
+    drivers::{onboard::types::OnboardSample, probe::types::ProbeSample},
+    extend_if_some,
+};
 
 #[derive(Default, Format, Clone, Copy)]
 pub struct AdvertismentPayload {
@@ -72,6 +59,13 @@ impl AdvertismentPayload {
         }
     }
 
+    pub fn with_plugged_in(self, plugged_in: bool) -> Self {
+        Self {
+            plugged_in: Some(plugged_in.into()),
+            ..self
+        }
+    }
+
     fn length(&self) -> usize {
         bthome_length!(self.battery_level)
             + bthome_length!(self.air_temperature)
@@ -101,17 +95,19 @@ impl AdvertismentPayload {
     }
 }
 
-#[derive(Format, Clone, Copy)]
+#[derive(Format, Clone)]
 pub struct AdvertismentData {
     payload: AdvertismentPayload,
-    name: &'static str,
+    #[defmt(Display2Format)]
+    name: String<16>,
 }
 
 impl Default for AdvertismentData {
     fn default() -> Self {
         Self {
             payload: Default::default(),
-            name: "Testus",
+            name: String::from_str("Sensus")
+                .expect("Name too long. Please limit to 16 characters."),
         }
     }
 }
@@ -143,7 +139,11 @@ impl AdvertismentData {
         buff
     }
 
-    pub fn with_payload(self, payload: AdvertismentPayload) -> Self {
-        Self { payload, ..self }
+    pub fn with_payload(&self, payload: AdvertismentPayload) -> Self {
+        // let mut new_adv_data
+        Self {
+            payload,
+            ..self.clone()
+        }
     }
 }

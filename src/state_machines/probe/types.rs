@@ -20,7 +20,7 @@ impl ProbeSM {
     pub fn new() -> Self {
         ProbeSM {
             state: ProbeSMState::Start,
-            ticker: Ticker::every(Duration::from_secs(3)),
+            ticker: Ticker::every(Duration::from_secs(10)),
         }
     }
 

@@ -4,10 +4,11 @@ use types::OnboardFilter;
 use embassy_futures::select::{select, Either};
 use embassy_time::Instant;
 
+use crate::ble::types::AdvertismentPayload;
 use crate::common::types::Filter;
-use crate::drivers::ble::types::AdvertismentPayload;
 use crate::drivers::probe::types::ProbeSample;
 use crate::globals::{BLE_ADV_PKT_QUEUE, ONBOARD_DATA_SIG, PROBE_DATA_SIG};
+use crate::PLUGGED_IN_FLAG;
 
 pub async fn run() {
     let mut adv_payload = AdvertismentPayload::default();
@@ -30,6 +31,8 @@ pub async fn run() {
             }
         };
         adv_payload = adv_payload.with_uptime(Instant::now());
+        adv_payload = adv_payload
+            .with_plugged_in(PLUGGED_IN_FLAG.load(core::sync::atomic::Ordering::Relaxed));
         // This call is debounced by the BLE state machine.
         BLE_ADV_PKT_QUEUE.send(adv_payload).await;
     }

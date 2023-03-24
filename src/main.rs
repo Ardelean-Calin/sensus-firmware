@@ -7,6 +7,7 @@
 // Needs to come before everything.
 mod prelude;
 
+mod ble;
 mod common;
 mod coroutines;
 mod drivers;
@@ -15,6 +16,8 @@ mod globals;
 mod state_machines;
 mod tasks;
 mod types;
+
+use core::sync::atomic::AtomicBool;
 
 use embassy_futures::join::join;
 use nrf_softdevice::Softdevice;
@@ -123,7 +126,7 @@ async fn main_task() {
     let p = embassy_nrf::init(config);
 
     // Enable the softdevice.
-    let (sd, server) = drivers::ble::configure_ble();
+    let sd = ble::configure_ble();
     info!("My address: {:?}", nrf_softdevice::ble::get_address(sd));
     // And get the flash controller
     let mut flash = nrf_softdevice::Flash::take(sd);
@@ -199,8 +202,8 @@ async fn main_task() {
     // ));
     // Should await forever.
     join(
-        state_machines::ble::gatt_spawner(sd, server),
-        state_machines::ble::run(),
+        ble::coroutines::advertisment_loop(sd),
+        ble::state_machines::run(),
     )
     .await;
 }
@@ -215,12 +218,15 @@ static PLUGGED_DETECT: PowerDetect = PowerDetect {
     plugged_out: PubSubChannel::new(),
 };
 
+pub static PLUGGED_IN_FLAG: AtomicBool = AtomicBool::new(false);
+
 #[embassy_executor::task]
 async fn power_state_task(monitor_pin: AnyPin) {
     let mut plugged_detect = Input::new(monitor_pin, Pull::Down);
     loop {
         plugged_detect.wait_for_high().await;
         info!("Plugged in");
+        PLUGGED_IN_FLAG.store(true, core::sync::atomic::Ordering::Relaxed);
         PLUGGED_DETECT
             .plugged_in
             .publisher()
@@ -229,6 +235,7 @@ async fn power_state_task(monitor_pin: AnyPin) {
             .await;
         plugged_detect.wait_for_low().await;
         info!("Plugged out");
+        PLUGGED_IN_FLAG.store(false, core::sync::atomic::Ordering::Relaxed);
         PLUGGED_DETECT
             .plugged_out
             .publisher()

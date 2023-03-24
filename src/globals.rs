@@ -5,7 +5,7 @@ use embassy_sync::pubsub::PubSubChannel;
 use embassy_sync::signal::Signal;
 use heapless::Vec;
 
-use crate::drivers::ble::types::AdvertismentPayload;
+use crate::ble::types::AdvertismentPayload;
 use crate::drivers::onboard::types::OnboardSample;
 use crate::drivers::probe::types::ProbeSample;
 use crate::state_machines::dfu::types::Page;
