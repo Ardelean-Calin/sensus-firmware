@@ -4,8 +4,16 @@ pub mod types;
 
 use crate::sensors::types::OnboardPeripherals;
 use battery::types::BatterySensor;
-use embassy_nrf::{gpio::Input, saadc, twim};
+use embassy_nrf::{bind_interrupts, gpio::Input, peripherals, saadc, twim};
 use types::OnboardHardware;
+
+bind_interrupts!(struct AdcIrqs {
+    SAADC => saadc::InterruptHandler;
+});
+
+bind_interrupts!(struct I2cIrqs {
+    SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => twim::InterruptHandler<peripherals::TWISPI0>;
+});
 
 impl<'a> OnboardHardware<'a> {
     pub fn from_peripherals(per: &'a mut OnboardPeripherals) -> OnboardHardware {
@@ -14,12 +22,7 @@ impl<'a> OnboardHardware<'a> {
         config.oversample = saadc::Oversample::OVER64X;
 
         let channel_cfg = saadc::ChannelConfig::single_ended(saadc::VddInput);
-        let adc = saadc::Saadc::new(
-            &mut per.instance_saadc,
-            &mut per.adc_irq,
-            config,
-            [channel_cfg],
-        );
+        let adc = saadc::Saadc::new(&mut per.instance_saadc, AdcIrqs, config, [channel_cfg]);
         let battery = BatterySensor::new(adc);
 
         // let i2c = bitbang_hal::i2c::I2cBB::new(pin_scl, pin_sda, clock);
@@ -30,7 +33,7 @@ impl<'a> OnboardHardware<'a> {
 
         let i2c_bus = twim::Twim::new(
             &mut per.instance_twim,
-            &mut per.i2c_irq,
+            I2cIrqs,
             &mut per.pin_sda,
             &mut per.pin_scl,
             i2c_config,

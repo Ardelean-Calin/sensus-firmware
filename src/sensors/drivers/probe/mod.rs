@@ -6,6 +6,8 @@ use crate::sensors::drivers::frequency::types::FrequencySensor;
 use crate::sensors::types::Error;
 use crate::sensors::types::ProbePeripherals;
 use crate::sensors::types::ProbeSample;
+use embassy_nrf::bind_interrupts;
+use embassy_nrf::peripherals;
 use embassy_nrf::{
     gpio::{Input, Level, Output, Pull},
     gpiote::InputChannel,
@@ -50,6 +52,10 @@ impl Mul<f32> for ProbeSample {
     }
 }
 
+bind_interrupts!(struct I2cIrqs {
+    SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1 => twim::InterruptHandler<peripherals::TWISPI1>;
+});
+
 impl<'a> ProbeHardware<'a> {
     pub fn from_peripherals(per: &'a mut ProbePeripherals) -> Self {
         // Frequency measurement initialization
@@ -91,7 +97,7 @@ impl<'a> ProbeHardware<'a> {
 
         let i2c_bus = twim::Twim::new(
             &mut per.instance_twim,
-            &mut per.i2c_irq,
+            I2cIrqs,
             &mut per.pin_probe_sda,
             &mut per.pin_probe_scl,
             i2c_config,

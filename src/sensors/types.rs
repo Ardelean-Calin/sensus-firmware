@@ -2,7 +2,6 @@ use defmt::Format;
 use embassy_nrf::{
     gpio::AnyPin,
     gpiote::AnyChannel,
-    interrupt::SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1,
     peripherals::{SAADC, TWISPI0},
     ppi::AnyConfigurableChannel,
 };
@@ -34,7 +33,6 @@ pub struct ProbePeripherals {
     pub instance_twim: embassy_nrf::peripherals::TWISPI1,
     pub instance_gpiote: AnyChannel,
     pub instance_ppi: AnyConfigurableChannel,
-    pub i2c_irq: SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1,
 }
 
 pub struct OnboardPeripherals {
@@ -43,8 +41,6 @@ pub struct OnboardPeripherals {
     pub pin_interrupt: AnyPin,
     pub instance_twim: TWISPI0,
     pub instance_saadc: SAADC,
-    pub adc_irq: embassy_nrf::interrupt::SAADC,
-    pub i2c_irq: embassy_nrf::interrupt::SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0,
 }
 
 #[derive(Format, Clone, Copy)]

@@ -1,4 +1,7 @@
 use crc::{Crc, CRC_16_GSM};
+use embassy_nrf::bind_interrupts;
+use embassy_nrf::interrupt::Binding;
+use embassy_nrf::peripherals;
 use embassy_nrf::uarte;
 use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::uarte::UarteTx;
@@ -7,9 +10,9 @@ use postcard::from_bytes_cobs;
 use postcard::to_slice_cobs;
 use postcard::to_vec;
 
+use crate::comm_manager::types::CommResponse;
 use crate::types::CommPacket;
 use crate::types::CommPacketType;
-use crate::types::CommResponse;
 use crate::types::PacketError;
 use crate::types::UartError;
 
@@ -17,22 +20,29 @@ pub mod tasks;
 
 pub const CRC_GSM: Crc<u16> = Crc::<u16>::new(&CRC_16_GSM);
 
+bind_interrupts!(struct UartIrqs {
+    UARTE0_UART0 => uarte::InterruptHandler<peripherals::UARTE0>;
+});
+
 /// Initializes the UART peripheral with our default config.
 fn serial_init<'d, T>(
     instance: &'d mut T,
     pin_tx: &'d mut embassy_nrf::gpio::AnyPin,
     pin_rx: &'d mut embassy_nrf::gpio::AnyPin,
-    uart_irq: &'d mut impl embassy_nrf::Peripheral<P = T::Interrupt>,
 ) -> (UarteTx<'d, T>, UarteRx<'d, T>)
 where
     T: embassy_nrf::uarte::Instance,
+    UartIrqs: Binding<
+        <T as embassy_nrf::uarte::Instance>::Interrupt,
+        embassy_nrf::uarte::InterruptHandler<T>,
+    >,
 {
     // UART-related
     let mut config = uarte::Config::default();
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD460800;
 
-    let uart = uarte::Uarte::new(instance, uart_irq, pin_rx, pin_tx, config);
+    let uart = uarte::Uarte::new(instance, UartIrqs, pin_rx, pin_tx, config);
 
     // Return the two Rx and Tx instances
     uart.split()

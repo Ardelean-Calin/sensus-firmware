@@ -1,5 +1,6 @@
+pub mod types;
 use crate::globals::{RX_BUS, TX_BUS};
-use crate::types::{CommResponse, ResponseTypeErr};
+use types::{CommResponse, ResponseTypeErr};
 
 /// This is the main Communication loop. It handles everything communication-related.
 /// Data comes in via a subscriber and gets sent away via a publisher.
@@ -18,6 +19,9 @@ async fn comm_mgr_loop() {
                     crate::types::CommPacketType::DfuPacket(payload) => {
                         // Feed to DFU state machine for processing.
                         crate::dfu::process_payload(payload).await
+                    }
+                    crate::types::CommPacketType::ConfigPacket(payload) => {
+                        crate::config::process_payload(payload).await
                     }
                 };
 

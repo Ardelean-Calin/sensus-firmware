@@ -50,6 +50,7 @@ defmt-rtt = "0.3.2"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 nrf-softdevice = { version = "0.1.0", features = [
     "defmt",
+    "nightly",
     "nrf52832",
     "s132",
     "ble-peripheral",
@@ -59,16 +60,17 @@ nrf-softdevice = { version = "0.1.0", features = [
 ], git = "https://github.com/Ardelean-Calin/nrf-softdevice.git" }
 nrf-softdevice-s132 = { version = "0.1.1", git = "https://github.com/Ardelean-Calin/nrf-softdevice.git" }
 embedded-storage = "0.3.0"
-embedded-storage-async = "0.3.0"
+embedded-storage-async = "0.4.0"
 futures = { version = "0.3.5", default-features = false }
 fixed = "1.2.0"
 heapless = "0.7.1"
-atomic-pool = "0.2.1"
 static_cell = "1.0.0"
 nrf52832-pac = "0.12.0"
 embedded-hal-async = "=0.2.0-alpha.0"
-shtc3-async = { path = "shtc3-async", features = ["defmt"], version = "0.1.0" }
-opt300x-async = { path = "opt300x-rs-async", version = "0.1.0", features = [
+shtc3-async = { git = "https://github.com/Ardelean-Calin/shtc3-async.git", features = [
+    "defmt",
+], version = "0.1.0" }
+opt300x-async = { git = "https://github.com/Ardelean-Calin/opt300x-rs-async.git", version = "0.1.0", features = [
     "defmt",
 ] }
 shared-bus = { version = "0.2.4", features = ["cortex-m"] }
@@ -85,9 +87,9 @@ crc = "3.0.1"
 postcard = { version = "1.0.4", features = ["heapless"] }
 serde = { version = "1.0.*", default-features = false }
 serde_repr = "0.1.10"
+aligned = "0.4.1"
 [patch.crates-io]
 nrf52832-pac = { git = "https://github.com/Ardelean-Calin/nrf-pacs.git" }
-
 
 [profile.dev]
 codegen-units = 1

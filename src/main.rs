@@ -12,15 +12,11 @@ mod comm_manager;
 mod common;
 mod config;
 mod dfu;
-mod error;
 mod globals;
 mod power_manager;
 mod sensors;
 mod serial;
 mod types;
-
-use embassy_futures::join::join;
-use nrf_softdevice::Softdevice;
 
 mod custom_executor;
 
@@ -28,89 +24,27 @@ use cortex_m_rt::entry;
 use defmt::info;
 use embassy_boot_nrf::FirmwareUpdater;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_nrf::{
-    gpio::Pin,
-    gpiote::Channel,
-    interrupt::{self, InterruptExt},
-    peripherals,
-    ppi::ConfigurableChannel,
-    wdt::Watchdog,
+    gpio::Pin, gpiote::Channel, peripherals, ppi::ConfigurableChannel, wdt::Watchdog,
 };
-use futures::StreamExt;
-use nrf52832_pac as pac;
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
+use nrf_softdevice::Softdevice;
 use static_cell::StaticCell;
+
+const FIRMWARE_VERSION: &str = "1.0.0-rc";
+
+/// Global access to a flash
+static FLASH_DRIVER: Mutex<ThreadModeRawMutex, Option<nrf_softdevice::Flash>> = Mutex::new(None);
 
 /// I need to create a custom executor to patch some very specific hardware bugs found on nRF52832.
 static EXECUTOR: StaticCell<custom_executor::Executor> = StaticCell::new();
 
-// Reconfigure UICR to enable reset pin if required (resets if changed).
-pub fn configure_reset_pin() {
-    let uicr = unsafe { &*pac::UICR::ptr() };
-    let nvmc = unsafe { &*pac::NVMC::ptr() };
-
-    #[cfg(feature = "nrf52840")]
-    const RESET_PIN: u8 = 18;
-    #[cfg(feature = "nrf52832")]
-    const RESET_PIN: u8 = 21;
-
-    // Sequence copied from Nordic SDK components/toolchain/system_nrf52.c
-    if uicr.pselreset[0].read().connect().is_disconnected()
-        || uicr.pselreset[1].read().connect().is_disconnected()
-    {
-        nvmc.config.write(|w| w.wen().wen());
-        while nvmc.ready.read().ready().is_busy() {}
-
-        for i in 0..=1 {
-            uicr.pselreset[i].write(|w| {
-                unsafe {
-                    w.pin().bits(RESET_PIN);
-                } // should be 21 for 52832
-
-                #[cfg(feature = "nrf52840")]
-                w.port().clear_bit(); // not present on 52832
-
-                w.connect().connected();
-                w
-            });
-            while nvmc.ready.read().ready().is_busy() {}
-        }
-
-        nvmc.config.write(|w| w.wen().ren());
-        while nvmc.ready.read().ready().is_busy() {}
-
-        cortex_m::peripheral::SCB::sys_reset();
-    }
-}
-
-/// Reconfigure NFC pins to be regular GPIO pins (resets if changed).
-/// It's a simple bit flag on LSb of the UICR register.
-pub fn configure_nfc_pins_as_gpio() {
-    let uicr = unsafe { &*pac::UICR::ptr() };
-    let nvmc = unsafe { &*pac::NVMC::ptr() };
-
-    // Sequence copied from Nordic SDK components/toolchain/system_nrf52.c line 173
-    if uicr.nfcpins.read().protect().is_nfc() {
-        nvmc.config.write(|w| w.wen().wen());
-        while nvmc.ready.read().ready().is_busy() {}
-
-        uicr.nfcpins.write(|w| w.protect().disabled());
-        while nvmc.ready.read().ready().is_busy() {}
-
-        nvmc.config.write(|w| w.wen().ren());
-        while nvmc.ready.read().ready().is_busy() {}
-
-        cortex_m::peripheral::SCB::sys_reset();
-    }
-}
-
 #[embassy_executor::task]
 async fn main_task() {
     let spawner = Spawner::for_current_executor().await;
-    // Configure NFC pins as gpio.
-    // configure_nfc_pins_as_gpio();
-    // Configure Pin 21 as reset pin. Only this pin can be used according
-    // to datasheet.
-    configure_reset_pin();
+    // NOTE: You can configure the reset pin as gpio by using the cargo feature "reset-pin-as-gpio".
+    //       Same can be done for the NFC pins: "nfc-pins-as-gpio"
 
     // Main application task.
     let mut config = embassy_nrf::config::Config::default();
@@ -134,6 +68,10 @@ async fn main_task() {
 
     // TODO: Move to another place. Somewhere where if we got here, it is sure that the firmware is working.
     let _ = updater.mark_booted(&mut flash, &mut magic).await;
+    // Store the Flash in memory.
+    let mut f = FLASH_DRIVER.lock().await;
+    f.replace(flash);
+    core::mem::drop(f);
 
     // Spawn all the used tasks.
     // TODO: Only spawn the tasks AFTER configuration was loaded from nonvolatile memory.
@@ -143,24 +81,16 @@ async fn main_task() {
     spawner.must_spawn(power_manager::power_state_task(p.P0_04.degrade()));
 
     // Onboard sensor aquisition task.
-    let adc_irq = interrupt::take!(SAADC);
-    adc_irq.set_priority(interrupt::Priority::P7);
-    let i2c_irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-    i2c_irq.set_priority(interrupt::Priority::P7);
     let onboard_per = sensors::types::OnboardPeripherals {
         pin_sda: p.P0_06.degrade(),       // SDA
         pin_scl: p.P0_08.degrade(),       // SCL
         pin_interrupt: p.P0_07.degrade(), // INT
         instance_twim: p.TWISPI0,         // used I2C interface
         instance_saadc: p.SAADC,          // used SAADC
-        adc_irq,                          // used SAADC interrupt
-        i2c_irq,                          // used I2c interrupt
     };
     spawner.must_spawn(sensors::onboard_task(onboard_per));
 
     // Soil sensor aquisition task.
-    let i2c_irq = interrupt::take!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
-    i2c_irq.set_priority(interrupt::Priority::P7);
     let probe_per = sensors::types::ProbePeripherals {
         pin_probe_detect: p.P0_20.degrade(),     // probe_detect
         pin_probe_enable: p.P0_11.degrade(),     // probe_enable
@@ -170,14 +100,13 @@ async fn main_task() {
         instance_twim: p.TWISPI1,                // used I2C interface
         instance_gpiote: p.GPIOTE_CH0.degrade(), // GPIOTE channel
         instance_ppi: p.PPI_CH0.degrade(),       // PPI channel
-        i2c_irq,                                 // I2C interrupt
     };
     spawner.must_spawn(sensors::soil_task(probe_per));
     spawner.must_spawn(ble::payload_manager::payload_mgr_task());
 
     // This "task" can run all the time, since we want DFU to be available via Bluetooth, as
     // well.
-    spawner.must_spawn(dfu::dfu_task(flash));
+    spawner.must_spawn(dfu::dfu_task());
     spawner.must_spawn(comm_manager::comm_task());
 
     // Will handle UART DFU and data logging over UART.

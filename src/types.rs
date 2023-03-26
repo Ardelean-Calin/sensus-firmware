@@ -2,7 +2,8 @@ use defmt::Format;
 
 use serde::{Deserialize, Serialize};
 
-use crate::dfu::types::{DfuError, DfuPayload};
+use crate::config::types::ConfigPayload;
+use crate::dfu::types::DfuPayload;
 
 #[derive(Format, Clone, Serialize)]
 pub enum PacketError {
@@ -11,39 +12,6 @@ pub enum PacketError {
     /// General decoding error when trying to create a packet from raw bytes.
     DeserializationError,
     PacketCRC,
-}
-
-#[derive(Serialize, Format, Clone)]
-pub enum CommResponse {
-    OK(ResponseTypeOk),
-    NOK(ResponseTypeErr),
-}
-
-// pub enum ResponseType {
-//     ResponseTypeOk = {
-//         Dfu(DfuOkType),
-//         Config,
-//         Log,}
-// }
-#[derive(Serialize, Format, Clone)]
-pub enum ResponseTypeOk {
-    NoData,
-    Dfu(DfuOkType),
-    Config,
-    Log,
-}
-
-#[derive(Serialize, Format, Clone)]
-pub enum ResponseTypeErr {
-    Packet(PacketError),
-    Dfu(DfuError),
-}
-
-#[derive(Serialize, Format, Clone)]
-pub enum DfuOkType {
-    FirmwareVersion([u8; 6]),
-    NextFrame,
-    DfuDone,
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -73,6 +41,6 @@ pub struct CommPacket {
 #[derive(Clone, Serialize, Deserialize, Format)]
 pub enum CommPacketType {
     DfuPacket(DfuPayload),
+    ConfigPacket(ConfigPayload),
     // LogPacket(LogPayload),
-    // ConfigPacket(ConfigPayload),
 }

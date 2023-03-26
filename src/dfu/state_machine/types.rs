@@ -12,6 +12,7 @@ pub struct DfuStateMachine {
 pub enum DfuSmState {
     Idle,
     WaitBlock,
+    FlashPage,
     Error(DfuError),
     Done,
 }

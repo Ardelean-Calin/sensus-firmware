@@ -6,8 +6,6 @@ use crate::power_manager::PLUGGED_DETECT;
 use crate::run_while_plugged_in;
 use embassy_futures::join::join;
 use embassy_nrf::gpio::AnyPin;
-use embassy_nrf::interrupt;
-use embassy_nrf::interrupt::InterruptExt;
 use embassy_nrf::peripherals;
 use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte::UarteRx;
@@ -51,14 +49,11 @@ pub async fn serial_task(
     mut pin_rx: AnyPin,
 ) {
     info!("serial task created.");
-    // Configure UART
-    let mut uart_irq = interrupt::take!(UARTE0_UART0);
-    uart_irq.set_priority(interrupt::Priority::P7);
 
     run_while_plugged_in!(PLUGGED_DETECT, async {
         defmt::warn!("UART task started!");
 
-        let (mut tx, mut rx) = serial_init(&mut instance, &mut pin_tx, &mut pin_rx, &mut uart_irq);
+        let (mut tx, mut rx) = serial_init(&mut instance, &mut pin_tx, &mut pin_rx);
 
         loop {
             join(uart_rx_task(&mut rx), uart_tx_task(&mut tx)).await;

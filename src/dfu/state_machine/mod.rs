@@ -2,20 +2,21 @@ pub mod types;
 
 use defmt::error;
 use defmt::info;
-use defmt::trace;
+use embassy_boot_nrf::FirmwareUpdater;
 use embassy_time::with_timeout;
 use embassy_time::Duration;
 use embassy_time::Timer;
 
 use super::types::DfuError;
 use super::types::DfuPayload;
+use super::types::Page;
 
-use crate::globals::DFU_SIG_DONE;
-use crate::globals::{DFU_SIG_FLASHED, DFU_SIG_NEW_PAGE, GLOBAL_PAGE};
-use crate::types::CommResponse;
-use crate::types::DfuOkType;
-use crate::types::ResponseTypeErr;
-use crate::types::ResponseTypeOk;
+use crate::comm_manager::types::CommResponse;
+use crate::comm_manager::types::DfuResponse;
+use crate::comm_manager::types::ResponseTypeErr;
+use crate::comm_manager::types::ResponseTypeOk;
+use crate::FIRMWARE_VERSION;
+use crate::FLASH_DRIVER;
 
 use self::types::DfuSmState;
 use self::types::DfuStateMachine;
@@ -31,48 +32,13 @@ impl DfuStateMachine {
             state: DfuSmState::Idle,
         }
     }
-
-    async fn process_dfu_payload(&mut self, payload: DfuPayload) {
-        if let DfuPayload::Block(b) = payload {
-            trace!("Received frame {:?}", b.counter);
-            if b.counter == self.frame_counter {
-                let mut page = GLOBAL_PAGE.lock().await;
-                page.data
-                    .extend_from_slice(&b.data)
-                    .expect("Page full. Is the block size a divisor of 4096?");
-
-                if page.is_full() {
-                    // We need to free the mutex.
-                    core::mem::drop(page);
-
-                    DFU_SIG_NEW_PAGE.signal(true);
-                    DFU_SIG_FLASHED.wait().await;
-
-                    let mut page = GLOBAL_PAGE.lock().await;
-                    page.clear_data();
-                    page.offset += 4096;
-
-                    if page.offset >= self.binary_size {
-                        // DFU Done.
-                        self.state = DfuSmState::Done;
-                        // continue;
-                    } else {
-                        self.state = DfuSmState::WaitBlock;
-                    }
-                }
-
-                self.frame_counter += 1;
-                OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(DfuOkType::NextFrame)));
-            } else {
-                error!("{:?}\t{:?}", b.counter, self.frame_counter);
-                self.state = DfuSmState::Error(DfuError::CounterError);
-            }
-        }
-    }
 }
 
+/// Runs the DFU State Machine in an infinite loop.
 pub async fn run() {
     let mut sm = DfuStateMachine::new();
+    let mut updater = FirmwareUpdater::default();
+    let mut page = Page::new();
     loop {
         match sm.state {
             DfuSmState::Idle => {
@@ -80,17 +46,21 @@ pub async fn run() {
                     DfuPayload::Header(h) => {
                         info!("Got the following binary size:");
                         info!("  binary size: {:#04x}", h.binary_size);
+                        // Reset the global page buffer when receiving a new start-of-dfu.
+                        page.reset();
+
                         sm.binary_size = h.binary_size as usize;
                         // Wait for the first frame.
                         sm.state = DfuSmState::WaitBlock;
                         // Send an OK.
-                        OUTPUT_SIG
-                            .signal(CommResponse::OK(ResponseTypeOk::Dfu(DfuOkType::NextFrame)));
+                        OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(
+                            DfuResponse::NextBlock,
+                        )));
                     }
                     DfuPayload::RequestFwVersion => {
-                        sm.state = DfuSmState::Idle;
+                        sm = DfuStateMachine::new();
                         OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(
-                            DfuOkType::FirmwareVersion([0xAA, 0xBB, 0xCC, 0xDD, 0xCA, 0xFE]),
+                            DfuResponse::FirmwareVersion(FIRMWARE_VERSION),
                         )))
                     }
                     _ => {
@@ -102,24 +72,74 @@ pub async fn run() {
                 // If we wait for a block, then we have a 1000 millisecond-long "active" section.
                 // This is so we don't remain stuck in DFU mode in case of no communication.
                 match with_timeout(Duration::from_millis(1000), INPUT_SIG.wait()).await {
-                    Ok(payload) => sm.process_dfu_payload(payload).await,
+                    Ok(payload) => {
+                        if let DfuPayload::Block(b) = payload {
+                            if b.counter == sm.frame_counter {
+                                page.data
+                                    .extend_from_slice(&b.data)
+                                    .expect("Page full. Is the block size a divisor of 4096?");
+                                sm.frame_counter += 1;
+
+                                if page.is_full() {
+                                    sm.state = DfuSmState::FlashPage;
+                                } else {
+                                    // Do not change state and request the next frame.
+                                    OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(
+                                        DfuResponse::NextBlock,
+                                    )));
+                                }
+                            } else {
+                                error!("{:?}\t{:?}", b.counter, sm.frame_counter);
+                                sm.state = DfuSmState::Error(DfuError::CounterError);
+                            }
+                        } else {
+                            sm.state = DfuSmState::Error(DfuError::UnexpectedFrame);
+                        }
+                    }
                     Err(_t) => {
                         // DFU Timeout error!
                         sm.state = DfuSmState::Error(DfuError::TimeoutError);
                     }
                 }
             }
+            DfuSmState::FlashPage => {
+                let mut f = FLASH_DRIVER.lock().await;
+                let flash_ref = f.as_mut().unwrap();
+                // Flashes the filled page.
+                updater
+                    .write_firmware(page.offset, page.data.as_slice(), flash_ref, page.length())
+                    .await
+                    .unwrap();
+
+                // Increments offset with 4096 and clears data.
+                page.increment_page();
+                if page.offset >= sm.binary_size {
+                    // DFU Done.
+                    sm.state = DfuSmState::Done;
+                } else {
+                    OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(
+                        DfuResponse::NextBlock,
+                    )));
+                    sm.state = DfuSmState::WaitBlock;
+                }
+            }
             DfuSmState::Done => {
-                info!("DFU DONE!");
-                OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(DfuOkType::DfuDone)));
+                OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(DfuResponse::DfuDone)));
                 // Will cause a reset.
-                DFU_SIG_DONE.signal(true);
-                sm.state = DfuSmState::Idle;
+                info!("DFU Done! Resetting in 3 seconds...");
+                Timer::after(Duration::from_secs(3)).await;
+                // Mark the firmware as updated and reset!
+                let mut f = FLASH_DRIVER.lock().await;
+                let flash_ref = f.as_mut().unwrap();
+                let mut magic = [0; 4];
+                updater.mark_updated(flash_ref, &mut magic).await.unwrap();
+                // Reset microcontroller.
+                cortex_m::peripheral::SCB::sys_reset();
             }
             DfuSmState::Error(e) => {
                 error!("DFU Error: {:?}", e);
-                sm.state = DfuSmState::Idle;
                 OUTPUT_SIG.signal(CommResponse::NOK(ResponseTypeErr::Dfu(e)));
+                sm = DfuStateMachine::new();
                 // Just for not flooding in case of CTRL-C
                 Timer::after(Duration::from_millis(100)).await;
             }
