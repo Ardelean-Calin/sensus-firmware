@@ -10,7 +10,7 @@ mod prelude;
 mod ble;
 mod comm_manager;
 mod common;
-mod config;
+mod config_manager;
 mod dfu;
 mod globals;
 mod power_manager;

@@ -11,10 +11,7 @@ use super::types::DfuError;
 use super::types::DfuPayload;
 use super::types::Page;
 
-use crate::comm_manager::types::CommResponse;
 use crate::comm_manager::types::DfuResponse;
-use crate::comm_manager::types::ResponseTypeErr;
-use crate::comm_manager::types::ResponseTypeOk;
 use crate::FIRMWARE_VERSION;
 use crate::FLASH_DRIVER;
 
@@ -53,15 +50,11 @@ pub async fn run() {
                         // Wait for the first frame.
                         sm.state = DfuSmState::WaitBlock;
                         // Send an OK.
-                        OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(
-                            DfuResponse::NextBlock,
-                        )));
+                        OUTPUT_SIG.signal(Ok(DfuResponse::NextBlock));
                     }
                     DfuPayload::RequestFwVersion => {
                         sm = DfuStateMachine::new();
-                        OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(
-                            DfuResponse::FirmwareVersion(FIRMWARE_VERSION),
-                        )))
+                        OUTPUT_SIG.signal(Ok(DfuResponse::FirmwareVersion(FIRMWARE_VERSION)))
                     }
                     _ => {
                         sm.state = DfuSmState::Error(DfuError::StateMachineError);
@@ -84,9 +77,7 @@ pub async fn run() {
                                     sm.state = DfuSmState::FlashPage;
                                 } else {
                                     // Do not change state and request the next frame.
-                                    OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(
-                                        DfuResponse::NextBlock,
-                                    )));
+                                    OUTPUT_SIG.signal(Ok(DfuResponse::NextBlock));
                                 }
                             } else {
                                 error!("{:?}\t{:?}", b.counter, sm.frame_counter);
@@ -117,14 +108,12 @@ pub async fn run() {
                     // DFU Done.
                     sm.state = DfuSmState::Done;
                 } else {
-                    OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(
-                        DfuResponse::NextBlock,
-                    )));
+                    OUTPUT_SIG.signal(Ok(DfuResponse::NextBlock));
                     sm.state = DfuSmState::WaitBlock;
                 }
             }
             DfuSmState::Done => {
-                OUTPUT_SIG.signal(CommResponse::OK(ResponseTypeOk::Dfu(DfuResponse::DfuDone)));
+                OUTPUT_SIG.signal(Ok(DfuResponse::DfuDone));
                 // Will cause a reset.
                 info!("DFU Done! Resetting in 3 seconds...");
                 Timer::after(Duration::from_secs(3)).await;
@@ -138,7 +127,7 @@ pub async fn run() {
             }
             DfuSmState::Error(e) => {
                 error!("DFU Error: {:?}", e);
-                OUTPUT_SIG.signal(CommResponse::NOK(ResponseTypeErr::Dfu(e)));
+                OUTPUT_SIG.signal(Err(e));
                 sm = DfuStateMachine::new();
                 // Just for not flooding in case of CTRL-C
                 Timer::after(Duration::from_millis(100)).await;

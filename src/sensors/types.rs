@@ -23,18 +23,6 @@ pub enum Error {
     OPTComm,
 }
 
-pub struct ProbePeripherals {
-    // Used pins and hardware peripherals
-    pub pin_probe_detect: AnyPin,
-    pub pin_probe_enable: AnyPin,
-    pub pin_probe_sda: AnyPin,
-    pub pin_probe_scl: AnyPin,
-    pub pin_probe_freq: AnyPin,
-    pub instance_twim: embassy_nrf::peripherals::TWISPI1,
-    pub instance_gpiote: AnyChannel,
-    pub instance_ppi: AnyConfigurableChannel,
-}
-
 pub struct OnboardPeripherals {
     pub pin_sda: AnyPin,
     pub pin_scl: AnyPin,
@@ -48,6 +36,22 @@ pub struct OnboardSample {
     pub environment_data: EnvironmentSample,
     pub battery_level: BatteryLevel,
 }
+pub struct OnboardFilter {
+    env_filter: Filter<EnvironmentSample>,
+    bat_filter: Filter<BatteryLevel>,
+}
+
+pub struct ProbePeripherals {
+    // Used pins and hardware peripherals
+    pub pin_probe_detect: AnyPin,
+    pub pin_probe_enable: AnyPin,
+    pub pin_probe_sda: AnyPin,
+    pub pin_probe_scl: AnyPin,
+    pub pin_probe_freq: AnyPin,
+    pub instance_twim: embassy_nrf::peripherals::TWISPI1,
+    pub instance_gpiote: AnyChannel,
+    pub instance_ppi: AnyConfigurableChannel,
+}
 
 #[derive(Format, Clone, Copy)]
 pub struct ProbeSample {
@@ -55,10 +59,21 @@ pub struct ProbeSample {
     pub temperature: f32, // °C
 }
 
-pub struct OnboardFilter {
-    env_filter: Filter<EnvironmentSample>,
-    bat_filter: Filter<BatteryLevel>,
+pub type ProbeFilter = Filter<ProbeSample>;
+
+pub struct SensorDataRaw {
+    onboard: OnboardSample,
+    probe: ProbeSample,
 }
+
+pub struct SensorDataFiltered {
+    onboard: OnboardFilter,
+    probe: ProbeFilter,
+}
+
+//
+// Implementations
+//
 
 impl Default for OnboardFilter {
     fn default() -> Self {
@@ -85,5 +100,3 @@ impl OnboardFilter {
         }
     }
 }
-
-pub type ProbeFilter = Filter<ProbeSample>;

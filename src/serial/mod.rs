@@ -1,3 +1,5 @@
+mod types;
+
 use crc::{Crc, CRC_16_GSM};
 use embassy_nrf::bind_interrupts;
 use embassy_nrf::interrupt::Binding;
@@ -10,11 +12,12 @@ use postcard::from_bytes_cobs;
 use postcard::to_slice_cobs;
 use postcard::to_vec;
 
+use crate::comm_manager::types::CommPacket;
+use crate::comm_manager::types::CommPacketType;
 use crate::comm_manager::types::CommResponse;
-use crate::types::CommPacket;
-use crate::types::CommPacketType;
-use crate::types::PacketError;
-use crate::types::UartError;
+use crate::comm_manager::types::PacketError;
+
+use types::UartError;
 
 pub mod tasks;
 

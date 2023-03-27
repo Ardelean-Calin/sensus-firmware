@@ -5,9 +5,9 @@ use embassy_sync::signal::Signal;
 
 use crate::ble::types::AdvertismentPayload;
 use crate::comm_manager::types::CommResponse;
+use crate::comm_manager::types::{CommPacket, PacketError};
 use crate::sensors::types::OnboardSample;
 use crate::sensors::types::ProbeSample;
-use crate::types::{CommPacket, PacketError};
 
 /// Used by BLE & UART to send data to the DFU State Machine. That's why we have two publishers.
 pub static RX_BUS: PubSubChannel<ThreadModeRawMutex, Result<CommPacket, PacketError>, 3, 1, 2> =

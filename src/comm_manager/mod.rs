@@ -16,12 +16,18 @@ async fn comm_mgr_loop() {
         match data_rx.next_message_pure().await {
             Ok(packet) => {
                 let response: CommResponse = match packet.payload {
-                    crate::types::CommPacketType::DfuPacket(payload) => {
+                    types::CommPacketType::DfuPacket(payload) => {
                         // Feed to DFU state machine for processing.
-                        crate::dfu::process_payload(payload).await
+                        match crate::dfu::process_payload(payload).await {
+                            Ok(r) => CommResponse::Ok(types::ResponseTypeOk::Dfu(r)),
+                            Err(e) => CommResponse::Err(types::ResponseTypeErr::Dfu(e)),
+                        }
                     }
-                    crate::types::CommPacketType::ConfigPacket(payload) => {
-                        crate::config::process_payload(payload).await
+                    types::CommPacketType::ConfigPacket(payload) => {
+                        match crate::config_manager::process_payload(payload).await {
+                            Ok(r) => CommResponse::Ok(types::ResponseTypeOk::Config(r)),
+                            Err(e) => CommResponse::Err(types::ResponseTypeErr::Config(e)),
+                        }
                     }
                 };
 
@@ -30,7 +36,7 @@ async fn comm_mgr_loop() {
             }
             Err(err) => {
                 data_tx
-                    .publish(CommResponse::NOK(ResponseTypeErr::Packet(err)))
+                    .publish(CommResponse::Err(ResponseTypeErr::Packet(err)))
                     .await
             }
         }
