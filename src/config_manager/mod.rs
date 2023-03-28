@@ -1,6 +1,5 @@
 use core::mem::size_of;
 
-use aligned::{Aligned, A4};
 use embedded_storage_async::nor_flash::NorFlash;
 
 // I got to make sure my config fits in this amount of bytes.
@@ -9,6 +8,7 @@ const CONFIG_SIZE: usize = size_of::<types::SensusConfig>();
 // Public interfaces.
 pub mod types;
 
+use embassy_boot_nrf::AlignedBuffer;
 use types::ConfigPayload;
 
 use crate::FLASH_DRIVER;
@@ -25,7 +25,7 @@ pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), Conf
     // Verifies if the fields are in the expected ranges.
     let config = config.verify()?;
 
-    let mut buf: Aligned<A4, [u8; CONFIG_SIZE]> = Aligned([0; CONFIG_SIZE]);
+    let mut buf: AlignedBuffer<CONFIG_SIZE> = AlignedBuffer([0; CONFIG_SIZE]);
     let serialized =
         postcard::to_slice(&config, buf.as_mut()).map_err(|_| ConfigError::SerializationError)?;
 
