@@ -54,6 +54,14 @@ pub async fn run() {
                     }
                     DfuPayload::RequestFwVersion => {
                         sm = DfuStateMachine::new();
+                        let mut magic = [0; 4];
+
+                        // If we got queried for the firmware version, we are clearly booted and at least the DFU
+                        // seems to be working.
+                        let mut f = FLASH_DRIVER.lock().await;
+                        let flash_ref = f.as_mut().unwrap();
+                        let _ = updater.mark_booted(flash_ref, &mut magic).await;
+
                         OUTPUT_SIG.signal(Ok(DfuResponse::FirmwareVersion(FIRMWARE_VERSION)))
                     }
                     _ => {

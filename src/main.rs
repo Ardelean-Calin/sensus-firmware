@@ -22,7 +22,6 @@ mod custom_executor;
 
 use cortex_m_rt::entry;
 use defmt::info;
-use embassy_boot_nrf::FirmwareUpdater;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nrf::{
@@ -62,12 +61,8 @@ async fn main_task() {
     let sd = ble::configure_ble();
     info!("My address: {:?}", nrf_softdevice::ble::get_address(sd));
     // And get the flash controller
-    let mut flash = nrf_softdevice::Flash::take(sd);
-    let mut updater = FirmwareUpdater::default();
-    let mut magic = [0; 4];
+    let flash = nrf_softdevice::Flash::take(sd);
 
-    // TODO: Move to another place. Somewhere where if we got here, it is sure that the firmware is working.
-    let _ = updater.mark_booted(&mut flash, &mut magic).await;
     // Store the Flash in memory.
     let mut f = FLASH_DRIVER.lock().await;
     f.replace(flash);

@@ -51,7 +51,7 @@ pub async fn serial_task(
     info!("serial task created.");
 
     run_while_plugged_in!(PLUGGED_DETECT, async {
-        defmt::warn!("UART task started!");
+        defmt::info!("UART task started!");
 
         let (mut tx, mut rx) = serial_init(&mut instance, &mut pin_tx, &mut pin_rx);
 
