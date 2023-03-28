@@ -2,12 +2,13 @@ use core::ops::{Add, Mul, Sub};
 
 use defmt::Format;
 use embassy_nrf::saadc;
+use serde::Serialize;
 
 pub struct BatterySensor<'a> {
     pub saadc: saadc::Saadc<'a, 1>,
 }
 
-#[derive(Format, Clone, Copy)]
+#[derive(Serialize, Format, Clone, Copy, Default)]
 pub struct BatteryLevel {
     pub value: f32,
 }

@@ -5,6 +5,7 @@ use embassy_nrf::{
     peripherals::{SAADC, TWISPI0},
     ppi::AnyConfigurableChannel,
 };
+use serde::Serialize;
 
 use crate::sensors::drivers::onboard::environment::types::EnvironmentSample;
 use crate::{common::types::Filter, sensors::drivers::onboard::battery::types::BatteryLevel};
@@ -31,11 +32,13 @@ pub struct OnboardPeripherals {
     pub instance_saadc: SAADC,
 }
 
-#[derive(Format, Clone, Copy)]
+#[derive(Serialize, Format, Clone, Copy)]
 pub struct OnboardSample {
     pub environment_data: EnvironmentSample,
     pub battery_level: BatteryLevel,
 }
+
+#[derive(Serialize, Format, Clone)]
 pub struct OnboardFilter {
     env_filter: Filter<EnvironmentSample>,
     bat_filter: Filter<BatteryLevel>,
@@ -53,7 +56,7 @@ pub struct ProbePeripherals {
     pub instance_ppi: AnyConfigurableChannel,
 }
 
-#[derive(Format, Clone, Copy)]
+#[derive(Serialize, Format, Clone, Copy, Default)]
 pub struct ProbeSample {
     pub moisture: f32,    // 0 - 100%
     pub temperature: f32, // °C
@@ -61,11 +64,7 @@ pub struct ProbeSample {
 
 pub type ProbeFilter = Filter<ProbeSample>;
 
-pub struct SensorDataRaw {
-    onboard: OnboardSample,
-    probe: ProbeSample,
-}
-
+#[derive(Serialize, Format, Clone, Default)]
 pub struct SensorDataFiltered {
     onboard: OnboardFilter,
     probe: ProbeFilter,
@@ -98,5 +97,30 @@ impl OnboardFilter {
             environment_data: self.env_filter.feed(data.environment_data),
             battery_level: self.bat_filter.feed(data.battery_level),
         }
+    }
+
+    pub fn get_value(&self) -> OnboardSample {
+        OnboardSample {
+            environment_data: self.env_filter.get_value().unwrap_or_default(),
+            battery_level: self.bat_filter.get_value().unwrap_or_default(),
+        }
+    }
+}
+
+impl SensorDataFiltered {
+    pub fn feed_onboard(&mut self, sample: OnboardSample) {
+        self.onboard.feed(sample);
+    }
+
+    pub fn feed_probe(&mut self, sample: ProbeSample) {
+        self.probe.feed(sample);
+    }
+
+    pub fn get_onboard(&self) -> OnboardSample {
+        self.onboard.get_value()
+    }
+
+    pub fn get_probe(&self) -> ProbeSample {
+        self.probe.get_value().unwrap_or_default()
     }
 }

@@ -1,5 +1,8 @@
 pub mod types;
-use crate::globals::{RX_BUS, TX_BUS};
+use crate::{
+    globals::{RX_BUS, TX_BUS},
+    sensors::types::SensorDataFiltered,
+};
 use types::{CommResponse, ResponseTypeErr};
 
 /// This is the main Communication loop. It handles everything communication-related.
@@ -28,6 +31,11 @@ async fn comm_mgr_loop() {
                             Ok(r) => CommResponse::Ok(types::ResponseTypeOk::Config(r)),
                             Err(e) => CommResponse::Err(types::ResponseTypeErr::Config(e)),
                         }
+                    }
+                    types::CommPacketType::GetLatestSensordata => {
+                        let latest_data = SensorDataFiltered::default();
+
+                        CommResponse::Ok(types::ResponseTypeOk::SensorData(latest_data))
                     }
                 };
 

@@ -1,8 +1,15 @@
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
+
+use self::types::SensorDataFiltered;
+
 pub mod types;
 
 // Private mods
 mod drivers;
 mod state_machines;
+
+pub static LATEST_SENSOR_DATA: Mutex<ThreadModeRawMutex, Option<SensorDataFiltered>> =
+    Mutex::new(None);
 
 #[embassy_executor::task]
 pub async fn soil_task(per: types::ProbePeripherals) {

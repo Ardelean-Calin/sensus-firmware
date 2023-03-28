@@ -2,7 +2,6 @@ mod types;
 
 use defmt::{error, trace};
 use embassy_time::{with_timeout, Duration};
-use futures::StreamExt;
 
 use crate::{
     globals::PROBE_DATA_SIG, sensors::drivers::probe::sample_soil,

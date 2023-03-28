@@ -2,7 +2,7 @@ pub mod types;
 
 mod state_machine;
 
-use crate::comm_manager::types::{CommResponse, DfuResponse};
+use crate::comm_manager::types::DfuResponse;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 use types::DfuPayload;
 

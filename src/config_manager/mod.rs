@@ -11,12 +11,9 @@ pub mod types;
 
 use types::ConfigPayload;
 
-use crate::{
-    comm_manager::types::{CommResponse, ResponseTypeErr, ResponseTypeOk},
-    FLASH_DRIVER,
-};
+use crate::FLASH_DRIVER;
 
-use self::types::{ConfigError, ConfigResponse, SensusConfig};
+use self::types::{ConfigError, ConfigResponse};
 
 extern "C" {
     static __config_section_start__: u32;

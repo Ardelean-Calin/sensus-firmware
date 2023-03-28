@@ -3,7 +3,6 @@ mod types;
 use defmt::{error, trace};
 use embassy_time::Timer;
 use embassy_time::{with_timeout, Duration};
-use futures::StreamExt;
 
 use crate::globals::ONBOARD_DATA_SIG;
 use crate::sensors::drivers::onboard::battery;

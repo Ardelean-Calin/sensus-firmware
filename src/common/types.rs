@@ -1,11 +1,15 @@
 use core::ops::{Add, Mul, Sub};
 
-pub struct Filter<T: Copy> {
+use defmt::Format;
+use serde::Serialize;
+
+#[derive(Serialize, Format, Clone)]
+pub struct Filter<T: Copy + Default> {
     value: Option<T>,
     alpha: f32,
 }
 
-impl<T: Copy> Default for Filter<T> {
+impl<T: Copy + Default> Default for Filter<T> {
     /// Creates a default Filter. The default behavior is to tend towards more filtering.
     ///
     /// A alpha value of 0.329 means a 4*tau (time constant) of 10*sample period.
@@ -25,7 +29,7 @@ impl<T: Copy> Default for Filter<T> {
     }
 }
 
-impl<T: Copy> Filter<T> {
+impl<T: Copy + Default> Filter<T> {
     /// Creates a new filtered float with given alpha constant.
     pub fn new(alpha: f32) -> Self {
         if !(0.0..=1.0).contains(&alpha) {
@@ -52,7 +56,7 @@ impl<T: Copy> Filter<T> {
 
 impl<T> Filter<T>
 where
-    T: Copy + Add<Output = T> + Sub<Output = T> + Mul<f32, Output = T>,
+    T: Copy + Default + Add<Output = T> + Sub<Output = T> + Mul<f32, Output = T>,
 {
     /// Feeds a new value to the filter, resulting in the stored value being the filtered one.
     pub fn feed(&mut self, new_value: T) -> T {

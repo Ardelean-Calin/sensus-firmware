@@ -5,6 +5,7 @@ use crate::dfu::types::DfuError;
 
 use crate::config_manager::types::{ConfigError, ConfigPayload, ConfigResponse};
 use crate::dfu::types::DfuPayload;
+use crate::sensors::types::SensorDataFiltered;
 
 #[derive(Serialize, Format, Clone)]
 pub enum CommResponse {
@@ -14,10 +15,11 @@ pub enum CommResponse {
 
 #[derive(Serialize, Format, Clone)]
 pub enum ResponseTypeOk {
+    #[allow(dead_code)]
     NoData,
     Dfu(DfuResponse),
     Config(ConfigResponse), // Returns either a config or just an OK if we stored the config
-    SensorData(),
+    SensorData(SensorDataFiltered),
 }
 
 #[derive(Serialize, Format, Clone)]
@@ -56,5 +58,5 @@ pub struct CommPacket {
 pub enum CommPacketType {
     DfuPacket(DfuPayload),
     ConfigPacket(ConfigPayload),
-    // LogPacket(LogPayload),
+    GetLatestSensordata,
 }

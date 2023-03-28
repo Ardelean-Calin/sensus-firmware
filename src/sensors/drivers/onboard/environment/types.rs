@@ -1,8 +1,9 @@
 use core::ops::{Add, Mul, Sub};
 
 use defmt::Format;
+use serde::Serialize;
 
-#[derive(Format, Clone, Copy)]
+#[derive(Serialize, Format, Clone, Copy, Default)]
 pub struct EnvironmentSample {
     pub illuminance: f32,
     pub temperature: f32,
