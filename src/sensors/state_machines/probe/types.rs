@@ -5,6 +5,7 @@ use crate::sensors::types::ProbeSample;
 
 #[derive(Format)]
 pub enum ProbeSMState {
+    /// Startup code. Should only run once.
     Start,
     Measure,
     Publish(ProbeSample),

@@ -1,7 +1,13 @@
 use core::mem::size_of;
 
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex,
+    mutex::{Mutex, TryLockError},
+};
 use embedded_storage_async::nor_flash::NorFlash;
 
+// Stores the current sensus configuration globally, so that other parts of the program can load it.
+pub static SENSUS_CONFIG: Mutex<ThreadModeRawMutex, Option<SensusConfig>> = Mutex::new(None);
 // I got to make sure my config fits in this amount of bytes.
 const CONFIG_SIZE: usize = size_of::<types::SensusConfig>();
 
@@ -11,9 +17,9 @@ pub mod types;
 use embassy_boot_nrf::AlignedBuffer;
 use types::ConfigPayload;
 
-use crate::FLASH_DRIVER;
+use crate::{sensors, FLASH_DRIVER};
 
-use self::types::{ConfigError, ConfigResponse};
+use self::types::{ConfigError, ConfigResponse, SensusConfig};
 
 extern "C" {
     static __config_section_start__: u32;
@@ -24,6 +30,10 @@ extern "C" {
 pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), ConfigError> {
     // Verifies if the fields are in the expected ranges.
     let config = config.verify()?;
+
+    if config == load_sensus_config() {
+        return Ok(());
+    }
 
     let mut buf: AlignedBuffer<CONFIG_SIZE> = AlignedBuffer([0; CONFIG_SIZE]);
     let serialized =
@@ -47,6 +57,12 @@ pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), Conf
             .expect("Error writing config to flash.")
     }
 
+    // Store a mirror image of the latest config in RAM.
+    *SENSUS_CONFIG.lock().await = Some(config);
+    // Restart all state machines which make use of the config.
+    // ble::restart_state_machine();
+    // rgb::restart_state_machine();
+    sensors::restart_state_machines().await;
     Ok(())
 }
 
@@ -76,4 +92,12 @@ pub async fn process_payload(payload: ConfigPayload) -> Result<ConfigResponse, C
             Err(e) => Err(e),
         },
     }
+}
+
+/// Initializes the Config Manager. This needs to be called on boot.
+pub fn init() -> Result<(), TryLockError> {
+    let config = load_sensus_config();
+    defmt::info!("Loaded the following config: {:?}", config);
+    *SENSUS_CONFIG.try_lock()? = Some(config);
+    Ok(())
 }

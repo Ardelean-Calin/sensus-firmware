@@ -5,7 +5,6 @@ use crate::sensors::types::OnboardSample;
 
 #[derive(Format)]
 pub enum OnboardSMState {
-    FirstRun,
     Start,
     Measure,
     Publish(OnboardSample),
@@ -20,7 +19,7 @@ pub struct OnboardSM {
 impl OnboardSM {
     pub fn new() -> Self {
         OnboardSM {
-            state: OnboardSMState::FirstRun,
+            state: OnboardSMState::Start,
             ticker: Ticker::every(Duration::from_secs(10)),
         }
     }

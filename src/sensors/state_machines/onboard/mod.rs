@@ -1,10 +1,12 @@
 mod types;
 
 use defmt::{error, trace};
-use embassy_time::Timer;
 use embassy_time::{with_timeout, Duration};
+use embassy_time::{Ticker, Timer};
 
+use crate::config_manager::SENSUS_CONFIG;
 use crate::globals::ONBOARD_DATA_SIG;
+use crate::power_manager::PLUGGED_IN_FLAG;
 use crate::sensors::drivers::onboard::battery;
 use crate::sensors::drivers::onboard::environment;
 use crate::sensors::drivers::onboard::types::OnboardHardware;
@@ -17,14 +19,22 @@ use types::{OnboardSM, OnboardSMState};
 /// Executes one tick of the state-machine and returns the errors if any.
 async fn tick(sm: &mut OnboardSM, per: &mut OnboardPeripherals) -> Result<(), Error> {
     match sm.state {
-        OnboardSMState::FirstRun => {
+        OnboardSMState::Start => {
+            // Load sample period from config.
+            let mutex = SENSUS_CONFIG.lock().await;
+            let config = mutex.as_ref().unwrap();
+            let period = if PLUGGED_IN_FLAG.load(core::sync::atomic::Ordering::Relaxed) {
+                config.sampling_period.onboard_sdt_plugged_ms
+            } else {
+                config.sampling_period.onboard_sdt_battery_ms
+            } as u64;
+            sm.ticker = Ticker::every(Duration::from_millis(period));
+
+            // Initialize hardware.
             let hw = OnboardHardware::from_peripherals(per);
             environment::reset(hw.i2c_bus)?;
             // Delay for about 10ms to ensure all I2C sensors have started up.
             Timer::after(Duration::from_millis(10)).await;
-            sm.state = OnboardSMState::Start;
-        }
-        OnboardSMState::Start => {
             // TODO: Get configuration data from global config
             sm.state = OnboardSMState::Measure;
         }
@@ -65,10 +75,10 @@ async fn tick(sm: &mut OnboardSM, per: &mut OnboardPeripherals) -> Result<(), Er
 }
 
 ///  Runs the onboard sensor state machine.
-pub async fn run(mut per: OnboardPeripherals) {
+pub async fn run(per_ref: &mut OnboardPeripherals) {
     let mut sm = OnboardSM::new();
     loop {
-        let result = tick(&mut sm, &mut per).await;
+        let result = tick(&mut sm, per_ref).await;
         match result {
             Ok(_) => {}
             Err(e) => {
