@@ -1,4 +1,4 @@
-use defmt::{error, info};
+use defmt::error;
 
 use super::serial_init;
 use crate::globals::{RX_BUS, TX_BUS};
@@ -48,11 +48,7 @@ pub async fn serial_task(
     mut pin_tx: AnyPin,
     mut pin_rx: AnyPin,
 ) {
-    info!("serial task created.");
-
     run_while_plugged_in!(PLUGGED_DETECT, async {
-        defmt::info!("UART task started!");
-
         let (mut tx, mut rx) = serial_init(&mut instance, &mut pin_tx, &mut pin_rx);
 
         loop {
