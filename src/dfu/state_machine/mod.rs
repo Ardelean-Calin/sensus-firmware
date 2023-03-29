@@ -40,13 +40,13 @@ pub async fn run() {
         match sm.state {
             DfuSmState::Idle => {
                 match INPUT_SIG.wait().await {
-                    DfuPayload::Header(h) => {
+                    DfuPayload::StartDfu(binary_size) => {
                         info!("Got the following binary size:");
-                        info!("  binary size: {:#04x}", h.binary_size);
+                        info!("  binary size: {:#04x}", binary_size);
                         // Reset the global page buffer when receiving a new start-of-dfu.
                         page.reset();
 
-                        sm.binary_size = h.binary_size as usize;
+                        sm.binary_size = binary_size as usize;
                         // Wait for the first frame.
                         sm.state = DfuSmState::WaitBlock;
                         // Send an OK.
@@ -123,8 +123,8 @@ pub async fn run() {
             DfuSmState::Done => {
                 OUTPUT_SIG.signal(Ok(DfuResponse::DfuDone));
                 // Will cause a reset.
-                info!("DFU Done! Resetting in 3 seconds...");
-                Timer::after(Duration::from_secs(3)).await;
+                info!("DFU Done! Resetting...");
+                Timer::after(Duration::from_secs(1)).await;
                 // Mark the firmware as updated and reset!
                 let mut f = FLASH_DRIVER.lock().await;
                 let flash_ref = f.as_mut().unwrap();

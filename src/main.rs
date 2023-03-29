@@ -3,6 +3,7 @@
 #![feature(type_alias_impl_trait)]
 #![feature(future_join)]
 #![feature(result_flattening)]
+#![feature(once_cell)]
 
 // Needs to come before everything.
 mod prelude;
@@ -57,9 +58,10 @@ async fn main_task() {
     config.lfclk_source = embassy_nrf::config::LfclkSource::ExternalXtal;
     let p = embassy_nrf::init(config);
 
+    // Print out FW Version (for debugging purposes)
+    info!("Current FW version: {:?}", FIRMWARE_VERSION);
     // Enable the softdevice.
     let sd = ble::configure_ble();
-    info!("My address: {:?}", nrf_softdevice::ble::get_address(sd));
     // And get the flash controller
     let flash = nrf_softdevice::Flash::take(sd);
 

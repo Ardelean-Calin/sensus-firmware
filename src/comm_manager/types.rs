@@ -20,6 +20,7 @@ pub enum ResponseTypeOk {
     Dfu(DfuResponse),
     Config(ConfigResponse), // Returns either a config or just an OK if we stored the config
     SensorData(SensorDataFiltered),
+    MacAddress([u8; 6]),
 }
 
 #[derive(Serialize, Format, Clone)]
@@ -27,13 +28,14 @@ pub enum ResponseTypeErr {
     Packet(PacketError),
     Dfu(DfuError),
     Config(ConfigError),
+    MacAddressNotInitialized,
 }
 
 #[derive(Serialize, Format, Clone)]
 pub enum DfuResponse {
-    FirmwareVersion(&'static str),
-    NextBlock,
     DfuDone,
+    NextBlock,
+    FirmwareVersion(&'static str),
 }
 
 #[derive(Format, Clone, Serialize)]
@@ -59,4 +61,5 @@ pub enum CommPacketType {
     DfuPacket(DfuPayload),
     ConfigPacket(ConfigPayload),
     GetLatestSensordata,
+    GetMacAddress,
 }

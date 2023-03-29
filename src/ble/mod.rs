@@ -1,6 +1,8 @@
+use core::cell::OnceCell;
 use core::mem;
 
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
+use nrf_softdevice::ble::Address;
 use nrf_softdevice::raw;
 use nrf_softdevice::Softdevice;
 
@@ -12,6 +14,8 @@ pub mod coroutines;
 pub mod payload_manager;
 pub mod state_machines;
 pub mod types;
+// Exported variables
+pub static mut MAC_ADDRESS: Option<Address> = None;
 
 // Synchronization variables
 /// Synchronizes new advertising data between state machine and advertising loop.
@@ -54,6 +58,11 @@ pub fn configure_ble<'a>() -> &'a mut Softdevice {
     };
 
     let sd = Softdevice::enable(&config);
+    let mac_address = nrf_softdevice::ble::get_address(sd);
+    unsafe {
+        MAC_ADDRESS.replace(mac_address);
+    }
+    defmt::info!("BLE MAC address: {:?}", mac_address);
     // Enable DC/DC converter for the Softdevice.
     unsafe {
         let ret =

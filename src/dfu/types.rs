@@ -10,15 +10,10 @@ pub struct Page {
 
 #[derive(Clone, Serialize, Deserialize, Format)]
 pub enum DfuPayload {
-    Header(DfuHeader),
+    #[serde(with = "postcard::fixint::le")]
+    StartDfu(u32),
     Block(DfuBlock),
     RequestFwVersion,
-}
-
-#[derive(Deserialize, Serialize, Clone, Format)]
-pub struct DfuHeader {
-    #[serde(with = "postcard::fixint::le")]
-    pub binary_size: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize, Format)]

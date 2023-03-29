@@ -1,5 +1,6 @@
 pub mod types;
 use crate::{
+    ble::MAC_ADDRESS,
     globals::{RX_BUS, TX_BUS},
     sensors::types::SensorDataFiltered,
 };
@@ -37,6 +38,17 @@ async fn comm_mgr_loop() {
 
                         CommResponse::Ok(types::ResponseTypeOk::SensorData(latest_data))
                     }
+                    types::CommPacketType::GetMacAddress => unsafe {
+                        // It's ok since we only write MAC_ADDRESS once.
+                        match MAC_ADDRESS {
+                            Some(address) => {
+                                CommResponse::Ok(types::ResponseTypeOk::MacAddress(address.bytes()))
+                            }
+                            None => {
+                                CommResponse::Err(types::ResponseTypeErr::MacAddressNotInitialized)
+                            }
+                        }
+                    },
                 };
 
                 // Response can be OK or NOK, depending on how the state machine processed the received payload.
