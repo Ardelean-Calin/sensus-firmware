@@ -63,7 +63,7 @@ embedded-storage = "0.3.0"
 embedded-storage-async = "0.4.0"
 futures = { version = "0.3.5", default-features = false }
 fixed = "1.2.0"
-heapless = "0.7.1"
+heapless = { version = "0.7.16", features = ["serde"] }
 static_cell = "1.0.0"
 nrf52832-pac = "0.12.0"
 embedded-hal-async = "=0.2.0-alpha.0"

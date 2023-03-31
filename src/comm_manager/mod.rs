@@ -2,7 +2,7 @@ pub mod types;
 use crate::{
     ble::MAC_ADDRESS,
     globals::{RX_BUS, TX_BUS},
-    sensors::types::SensorDataFiltered,
+    sensors::LATEST_SENSOR_DATA,
 };
 use types::{CommResponse, ResponseTypeErr};
 
@@ -19,44 +19,60 @@ async fn comm_mgr_loop() {
     loop {
         match data_rx.next_message_pure().await {
             Ok(packet) => {
-                let response: CommResponse = match packet.payload {
+                match packet.payload {
                     types::CommPacketType::DfuPacket(payload) => {
                         // Feed to DFU state machine for processing.
-                        match crate::dfu::process_payload(payload).await {
-                            Ok(r) => CommResponse::Ok(types::ResponseTypeOk::Dfu(r)),
-                            Err(e) => CommResponse::Err(types::ResponseTypeErr::Dfu(e)),
-                        }
+                        crate::dfu::process_payload(payload).await;
                     }
                     types::CommPacketType::ConfigPacket(payload) => {
-                        match crate::config_manager::process_payload(payload).await {
-                            Ok(r) => CommResponse::Ok(types::ResponseTypeOk::Config(r)),
-                            Err(e) => CommResponse::Err(types::ResponseTypeErr::Config(e)),
-                        }
+                        crate::config_manager::process_payload(payload).await;
                     }
                     types::CommPacketType::GetLatestSensordata => {
-                        let latest_data = SensorDataFiltered::default();
+                        match LATEST_SENSOR_DATA.try_lock() {
+                            Ok(data) => {
+                                let latest_data = &*data;
+                                let latest_data = latest_data.clone().unwrap_or_default();
 
-                        CommResponse::Ok(types::ResponseTypeOk::SensorData(latest_data))
+                                data_tx
+                                    .publish(CommResponse::Ok(types::ResponseTypeOk::SensorData(
+                                        latest_data,
+                                    )))
+                                    .await;
+                            }
+                            Err(_) => {
+                                data_tx
+                                    .publish(CommResponse::Err(
+                                        types::ResponseTypeErr::FailedToGetSensorData,
+                                    ))
+                                    .await;
+                            }
+                        };
                     }
                     types::CommPacketType::GetMacAddress => unsafe {
                         // It's ok since we only write MAC_ADDRESS once.
                         match MAC_ADDRESS {
                             Some(address) => {
-                                CommResponse::Ok(types::ResponseTypeOk::MacAddress(address.bytes()))
+                                data_tx
+                                    .publish(CommResponse::Ok(types::ResponseTypeOk::MacAddress(
+                                        address.bytes(),
+                                    )))
+                                    .await;
                             }
                             None => {
-                                CommResponse::Err(types::ResponseTypeErr::MacAddressNotInitialized)
+                                data_tx
+                                    .publish(CommResponse::Err(
+                                        types::ResponseTypeErr::MacAddressNotInitialized,
+                                    ))
+                                    .await;
                             }
                         }
                     },
                 };
-
-                // Response can be OK or NOK, depending on how the state machine processed the received payload.
-                data_tx.publish(response).await;
             }
             Err(err) => {
+                defmt::error!("[COMM_MANAGER] Packet Error: {:?}", err);
                 data_tx
-                    .publish(CommResponse::Err(ResponseTypeErr::Packet(err)))
+                    .publish(CommResponse::Err(ResponseTypeErr::Phys(err)))
                     .await
             }
         }

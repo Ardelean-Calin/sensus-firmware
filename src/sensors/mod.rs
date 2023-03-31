@@ -1,7 +1,7 @@
 use embassy_futures::select::select;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex, pubsub::PubSubChannel};
 
-use self::types::SensorDataFiltered;
+use self::types::SensorDataRaw;
 
 pub mod types;
 
@@ -9,8 +9,7 @@ pub mod types;
 mod drivers;
 mod state_machines;
 
-pub static LATEST_SENSOR_DATA: Mutex<ThreadModeRawMutex, Option<SensorDataFiltered>> =
-    Mutex::new(None);
+pub static LATEST_SENSOR_DATA: Mutex<ThreadModeRawMutex, Option<SensorDataRaw>> = Mutex::new(None);
 
 static RESTART_SM: PubSubChannel<ThreadModeRawMutex, bool, 1, 2, 1> = PubSubChannel::new();
 

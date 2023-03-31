@@ -1,4 +1,3 @@
-use core::cell::OnceCell;
 use core::mem;
 
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};

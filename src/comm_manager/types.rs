@@ -5,7 +5,7 @@ use crate::dfu::types::DfuError;
 
 use crate::config_manager::types::{ConfigError, ConfigPayload, ConfigResponse};
 use crate::dfu::types::DfuPayload;
-use crate::sensors::types::SensorDataFiltered;
+use crate::sensors::types::SensorDataRaw;
 
 #[derive(Serialize, Format, Clone)]
 pub enum CommResponse {
@@ -15,26 +15,25 @@ pub enum CommResponse {
 
 #[derive(Serialize, Format, Clone)]
 pub enum ResponseTypeOk {
-    #[allow(dead_code)]
-    NoData,
     Dfu(DfuResponse),
     Config(ConfigResponse), // Returns either a config or just an OK if we stored the config
-    SensorData(SensorDataFiltered),
+    SensorData(SensorDataRaw),
     MacAddress([u8; 6]),
 }
 
 #[derive(Serialize, Format, Clone)]
 pub enum ResponseTypeErr {
-    Packet(PacketError),
+    Phys(PacketError),
     Dfu(DfuError),
     Config(ConfigError),
     MacAddressNotInitialized,
+    FailedToGetSensorData,
 }
 
 #[derive(Serialize, Format, Clone)]
 pub enum DfuResponse {
     DfuDone,
-    NextBlock,
+    RequestBlock([u8; 2]),
     FirmwareVersion(&'static str),
 }
 
@@ -47,6 +46,7 @@ pub enum PacketError {
     PacketCRC,
 }
 
+#[repr(C)]
 #[derive(Clone, Serialize, Deserialize, Format)]
 pub struct CommPacket {
     pub payload: CommPacketType,
@@ -55,7 +55,7 @@ pub struct CommPacket {
 }
 
 // NOTE: I din't find out how to give them custom IDs: https://github.com/jamesmunns/postcard/issues/55
-#[repr(u8)]
+#[repr(C)]
 #[derive(Clone, Serialize, Deserialize, Format)]
 pub enum CommPacketType {
     DfuPacket(DfuPayload),

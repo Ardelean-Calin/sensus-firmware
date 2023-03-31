@@ -17,7 +17,11 @@ pub mod types;
 use embassy_boot_nrf::AlignedBuffer;
 use types::ConfigPayload;
 
-use crate::{sensors, FLASH_DRIVER};
+use crate::{
+    comm_manager::types::{CommResponse, ResponseTypeErr, ResponseTypeOk},
+    globals::TX_BUS,
+    sensors, FLASH_DRIVER,
+};
 
 use self::types::{ConfigError, ConfigResponse, SensusConfig};
 
@@ -80,18 +84,32 @@ pub fn load_sensus_config() -> types::SensusConfig {
     }
 }
 
-pub async fn process_payload(payload: ConfigPayload) -> Result<ConfigResponse, ConfigError> {
+pub async fn process_payload(payload: ConfigPayload) {
     // This process is simple, I don't actually need a state machine.
     match payload {
         ConfigPayload::ConfigGet => {
             let config = load_sensus_config();
-            Ok(ConfigResponse::GetConfig(config))
+            TX_BUS
+                .dyn_immediate_publisher()
+                .publish_immediate(CommResponse::Ok(ResponseTypeOk::Config(
+                    ConfigResponse::GetConfig(config),
+                )));
         }
         ConfigPayload::ConfigSet(new_cfg) => match store_sensus_config(new_cfg).await {
-            Ok(_) => Ok(ConfigResponse::SetConfig),
-            Err(e) => Err(e),
+            Ok(_) => {
+                TX_BUS
+                    .dyn_immediate_publisher()
+                    .publish_immediate(CommResponse::Ok(ResponseTypeOk::Config(
+                        ConfigResponse::SetConfig,
+                    )));
+            }
+            Err(err) => {
+                TX_BUS
+                    .dyn_immediate_publisher()
+                    .publish_immediate(CommResponse::Err(ResponseTypeErr::Config(err)));
+            }
         },
-    }
+    };
 }
 
 /// Initializes the Config Manager. This needs to be called on boot.

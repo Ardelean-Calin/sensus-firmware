@@ -32,7 +32,7 @@ pub struct OnboardPeripherals {
     pub instance_saadc: SAADC,
 }
 
-#[derive(Serialize, Format, Clone, Copy)]
+#[derive(Serialize, Format, Clone, Copy, Default)]
 pub struct OnboardSample {
     pub environment_data: EnvironmentSample,
     pub battery_level: BatteryLevel,
@@ -65,6 +65,12 @@ pub struct ProbeSample {
 pub type ProbeFilter = Filter<ProbeSample>;
 
 #[derive(Serialize, Format, Clone, Default)]
+pub struct SensorDataRaw {
+    onboard: OnboardSample,
+    probe: ProbeSample,
+}
+
+#[derive(Clone, Default)]
 pub struct SensorDataFiltered {
     onboard: OnboardFilter,
     probe: ProbeFilter,
@@ -122,5 +128,12 @@ impl SensorDataFiltered {
 
     pub fn get_probe(&self) -> ProbeSample {
         self.probe.get_value().unwrap_or_default()
+    }
+
+    pub fn get_raw(&self) -> SensorDataRaw {
+        SensorDataRaw {
+            onboard: self.get_onboard(),
+            probe: self.get_probe(),
+        }
     }
 }

@@ -71,7 +71,8 @@ where
 }
 
 fn calculate_checksum(content: &CommPacketType) -> Result<u16, PacketError> {
-    let serialized: Vec<u8, 64> = to_vec(content).map_err(|_| PacketError::PacketCRC)?;
+    // TODO. The 256 byte limit should not be hard-coded. It should depend on the size of the structure
+    let serialized: Vec<u8, 256> = to_vec(content).map_err(|_| PacketError::PacketCRC)?;
     let crc = CRC_GSM.checksum(serialized.as_slice());
     Ok(crc)
 }
@@ -107,7 +108,7 @@ async fn send_response<T>(tx: &mut UarteTx<'_, T>, response: CommResponse) -> Re
 where
     T: embassy_nrf::uarte::Instance,
 {
-    let mut buf = [0u8; 32];
+    let mut buf = [0u8; 64]; // 64 bytes should be enough to encode any reply of ours.
     let tx_buf = to_slice_cobs(&response, &mut buf).expect("COBS encoding error.");
 
     tx.write(tx_buf).await.map_err(|_| UartError::UartTx)?;

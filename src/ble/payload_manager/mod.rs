@@ -37,7 +37,10 @@ async fn payload_mgr_loop() {
             }
         };
         // Replace the latest sensor data with the filtered one.
-        LATEST_SENSOR_DATA.lock().await.replace(sensordata.clone());
+        LATEST_SENSOR_DATA
+            .lock()
+            .await
+            .replace(sensordata.get_raw());
 
         adv_payload = adv_payload.with_uptime(Instant::now());
         adv_payload = adv_payload

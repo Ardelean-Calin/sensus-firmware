@@ -14,7 +14,7 @@ pub static RX_BUS: PubSubChannel<ThreadModeRawMutex, Result<CommPacket, PacketEr
     PubSubChannel::new();
 
 /// Used by DFU to send data. Either via UART or BLE => that's why we have two subscribers.
-pub static TX_BUS: PubSubChannel<ThreadModeRawMutex, CommResponse, 3, 2, 1> = PubSubChannel::new();
+pub static TX_BUS: PubSubChannel<ThreadModeRawMutex, CommResponse, 3, 2, 2> = PubSubChannel::new();
 
 // These busses are used to transmit the latest onboard and probe sensor data.
 pub static ONBOARD_DATA_SIG: Signal<ThreadModeRawMutex, OnboardSample> = Signal::new();
