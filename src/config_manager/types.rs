@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum ConfigError {
     SerializationError,
     InvalidSampleRate,
+    Flash(u8),
 }
 
 // TODO. Limit all values to 1 second minimum.

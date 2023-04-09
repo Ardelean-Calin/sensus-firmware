@@ -111,6 +111,9 @@ impl Default for AdvertismentData {
 }
 
 impl AdvertismentData {
+    pub fn set_name(&mut self, name: String<16>) {
+        self.name = name;
+    }
     pub fn as_vec(&self) -> Vec<u8, 64> {
         let mut buff = Vec::<u8, 64>::new();
 

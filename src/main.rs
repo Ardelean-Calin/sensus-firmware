@@ -103,6 +103,7 @@ async fn main_task() {
     };
     spawner.must_spawn(sensors::soil_task(probe_per));
     spawner.must_spawn(ble::payload_manager::payload_mgr_task());
+    spawner.must_spawn(ble::ble_task());
 
     // This "task" can run all the time, since we want DFU to be available via Bluetooth, as
     // well.
@@ -128,12 +129,9 @@ async fn main_task() {
     //     p.P0_26.degrade(),
     //     p.P0_27.degrade(),
     // ));
+
     // Should await forever.
-    join(
-        ble::coroutines::advertisment_loop(sd),
-        ble::state_machines::run(),
-    )
-    .await;
+    ble::coroutines::advertisment_loop(sd).await;
 }
 
 #[embassy_executor::task]

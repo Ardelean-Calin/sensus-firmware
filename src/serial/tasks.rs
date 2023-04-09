@@ -49,6 +49,7 @@ pub async fn serial_task(
     mut pin_rx: AnyPin,
 ) {
     run_while_plugged_in!(PLUGGED_DETECT, async {
+        defmt::info!("Started UART communication.");
         let (mut tx, mut rx) = serial_init(&mut instance, &mut pin_tx, &mut pin_rx);
 
         loop {

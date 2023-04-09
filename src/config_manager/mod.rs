@@ -18,6 +18,7 @@ use embassy_boot_nrf::AlignedBuffer;
 use types::ConfigPayload;
 
 use crate::{
+    ble,
     comm_manager::types::{CommResponse, ResponseTypeErr, ResponseTypeOk},
     common,
     globals::TX_BUS,
@@ -42,8 +43,7 @@ pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), Conf
     }
 
     let mut buf: AlignedBuffer<CONFIG_SIZE> = AlignedBuffer([0; CONFIG_SIZE]);
-    let serialized =
-        postcard::to_slice(&config, buf.as_mut()).map_err(|_| ConfigError::SerializationError)?;
+    postcard::to_slice(&config, buf.as_mut()).map_err(|_| ConfigError::SerializationError)?;
 
     let mut f = FLASH_DRIVER.lock().await;
     let flash_ref = f.as_mut().unwrap();
@@ -55,20 +55,20 @@ pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), Conf
         flash_ref
             .erase(p_config_start as u32, p_config_end as u32)
             .await
-            .expect("Error erasing flash.");
+            .map_err(|e| ConfigError::Flash(e as u8))?;
 
         flash_ref
-            .write(p_config_start as u32, serialized)
+            .write(p_config_start as u32, buf.as_mut())
             .await
-            .expect("Error writing config to flash.")
+            .map_err(|e| ConfigError::Flash(e as u8))?;
     }
 
     // Store a mirror image of the latest config in RAM.
     *SENSUS_CONFIG.lock().await = Some(config);
     // Restart all state machines which make use of the config.
-    // ble::restart_state_machine();
-    // rgb::restart_state_machine();
+    ble::restart_state_machine();
     sensors::restart_state_machines();
+    // rgb::restart_state_machine();
     defmt::info!("Config loaded successfully!");
     Ok(())
 }
@@ -109,6 +109,7 @@ pub async fn process_payload(payload: ConfigPayload) {
                 common::restart_state_machines();
             }
             Err(err) => {
+                defmt::error!("Error when updating config: {:?}", err);
                 TX_BUS
                     .dyn_immediate_publisher()
                     .publish_immediate(CommResponse::Err(ResponseTypeErr::Config(err)));

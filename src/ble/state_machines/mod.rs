@@ -2,6 +2,7 @@ pub mod types;
 
 use embassy_time::{with_timeout, Duration};
 
+use crate::config_manager::SENSUS_CONFIG;
 use crate::globals::BLE_ADV_PKT_QUEUE;
 use types::{BleSM, BleSMState};
 
@@ -17,6 +18,13 @@ pub async fn run() {
 
     loop {
         match sm.state {
+            BleSMState::Startup => {
+                // For startup, we load the Advertisment name from config.
+                let config = SENSUS_CONFIG.lock().await.clone().unwrap_or_default();
+                let ble_name = config.name;
+                current_adv_data.set_name(ble_name);
+                sm = sm.with_state(BleSMState::WaitForAdvdata);
+            }
             BleSMState::WaitForAdvdata => {
                 let payload = BLE_ADV_PKT_QUEUE.recv().await.with_packet_id(packet_id);
                 current_adv_data = current_adv_data.with_payload(payload);

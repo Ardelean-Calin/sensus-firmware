@@ -2,6 +2,7 @@ use defmt::Format;
 
 #[derive(Format)]
 pub enum BleSMState {
+    Startup,
     WaitForAdvdata, // Waits for new advertisment data. If gotten, completes a future
     Debounce,
     Advertising,
@@ -18,7 +19,7 @@ pub struct BleSM {
 impl BleSM {
     pub fn new() -> Self {
         BleSM {
-            state: BleSMState::WaitForAdvdata,
+            state: BleSMState::Startup,
         }
     }
 

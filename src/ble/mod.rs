@@ -1,5 +1,6 @@
 use core::mem;
 
+use embassy_futures::select::select;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 use nrf_softdevice::ble::Address;
 use nrf_softdevice::raw;
@@ -70,4 +71,18 @@ pub fn configure_ble<'a>() -> &'a mut Softdevice {
     }
 
     sd
+}
+
+static BLE_RESTART_SIG: Signal<ThreadModeRawMutex, bool> = Signal::new();
+
+#[embassy_executor::task]
+pub async fn ble_task() {
+    loop {
+        select(BLE_RESTART_SIG.wait(), self::state_machines::run()).await;
+    }
+}
+
+/// Restarts the BLE state machine.
+pub fn restart_state_machine() {
+    BLE_RESTART_SIG.signal(true);
 }
