@@ -17,7 +17,7 @@ pub static PLUGGED_DETECT: PowerDetect = PowerDetect {
 
 #[embassy_executor::task]
 pub async fn power_state_task(monitor_pin: AnyPin) {
-    let mut plugged_detect = Input::new(monitor_pin, Pull::Down);
+    let mut plugged_detect = Input::new(monitor_pin, Pull::None);
     loop {
         plugged_detect.wait_for_high().await;
         defmt::info!("Plugged in");
