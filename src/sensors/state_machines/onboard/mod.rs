@@ -4,15 +4,14 @@ use defmt::{error, trace};
 use embassy_time::{with_timeout, Duration};
 use embassy_time::{Ticker, Timer};
 
-use crate::config_manager::SENSUS_CONFIG;
 use crate::globals::ONBOARD_DATA_SIG;
-use crate::power_manager::PLUGGED_IN_FLAG;
 use crate::sensors::drivers::onboard::battery;
 use crate::sensors::drivers::onboard::environment;
 use crate::sensors::drivers::onboard::types::OnboardHardware;
 use crate::sensors::types::Error;
 use crate::sensors::types::OnboardPeripherals;
 use crate::sensors::types::OnboardSample;
+use crate::sensors::ONBOARD_SAMPLE_PERIOD;
 
 use types::{OnboardSM, OnboardSMState};
 
@@ -21,13 +20,9 @@ async fn tick(sm: &mut OnboardSM, per: &mut OnboardPeripherals) -> Result<(), Er
     match sm.state {
         OnboardSMState::Start => {
             // Load sample period from config.
-            let mutex = SENSUS_CONFIG.lock().await;
-            let config = mutex.as_ref().unwrap();
-            let period = if PLUGGED_IN_FLAG.load(core::sync::atomic::Ordering::Relaxed) {
-                config.sampling_period.onboard_sdt_plugged_ms
-            } else {
-                config.sampling_period.onboard_sdt_battery_ms
-            } as u64;
+            // let mutex = SENSUS_CONFIG.lock().await;
+            // let config = mutex.clone().unwrap_or_default();
+            let period = ONBOARD_SAMPLE_PERIOD.load(core::sync::atomic::Ordering::Relaxed) as u64;
             sm.ticker = Ticker::every(Duration::from_millis(period));
 
             // Initialize hardware.

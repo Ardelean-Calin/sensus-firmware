@@ -4,9 +4,11 @@ use defmt::{error, trace};
 use embassy_time::{with_timeout, Duration, Ticker, Timer};
 
 use crate::{
-    config_manager::SENSUS_CONFIG, globals::PROBE_DATA_SIG, power_manager::PLUGGED_IN_FLAG,
-    sensors::drivers::probe::sample_soil, sensors::drivers::probe::types::ProbeHardware,
-    sensors::types::Error, sensors::types::ProbePeripherals,
+    globals::PROBE_DATA_SIG,
+    sensors::drivers::probe::types::ProbeHardware,
+    sensors::types::Error,
+    sensors::types::ProbePeripherals,
+    sensors::{drivers::probe::sample_soil, PROBE_SAMPLE_PERIOD},
 };
 
 use types::{ProbeSM, ProbeSMState};
@@ -16,13 +18,7 @@ async fn tick(sm: &mut ProbeSM, per: &mut ProbePeripherals) -> Result<(), Error>
     match sm.state {
         ProbeSMState::Start => {
             // Get probe configuration data from global config
-            let mutex = SENSUS_CONFIG.lock().await;
-            let config = mutex.as_ref().unwrap();
-            let period = if PLUGGED_IN_FLAG.load(core::sync::atomic::Ordering::Relaxed) {
-                config.sampling_period.probe_sdt_plugged_ms
-            } else {
-                config.sampling_period.probe_sdt_battery_ms
-            } as u64;
+            let period = PROBE_SAMPLE_PERIOD.load(core::sync::atomic::Ordering::Relaxed) as u64;
             sm.ticker = Ticker::every(Duration::from_millis(period));
 
             // Just to be safe, keep the power line of the probe low for a bit on first start.

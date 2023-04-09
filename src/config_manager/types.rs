@@ -49,8 +49,8 @@ pub enum ConfigPayload {
 
 #[derive(Serialize, Format, Clone)]
 pub enum ConfigResponse {
-    SetConfig, // Set config successfully.
     GetConfig(SensusConfig),
+    SetConfig, // Set config successfully.
 }
 
 //

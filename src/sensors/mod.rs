@@ -1,5 +1,9 @@
+use core::sync::atomic::AtomicU32;
+
 use embassy_futures::select::select;
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex, pubsub::PubSubChannel};
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex, pubsub::PubSubChannel, signal::Signal,
+};
 
 use self::types::SensorDataRaw;
 
@@ -9,16 +13,20 @@ pub mod types;
 mod drivers;
 mod state_machines;
 
+pub static PROBE_SAMPLE_PERIOD: AtomicU32 = AtomicU32::new(u32::MAX);
+pub static ONBOARD_SAMPLE_PERIOD: AtomicU32 = AtomicU32::new(u32::MAX);
 pub static LATEST_SENSOR_DATA: Mutex<ThreadModeRawMutex, Option<SensorDataRaw>> = Mutex::new(None);
 
-static RESTART_SM: PubSubChannel<ThreadModeRawMutex, bool, 1, 2, 1> = PubSubChannel::new();
+/// Restarts both state machines when written to. Why not a Signal?
+/// Because a signal would not notify both tasks, and only one would be restarted.
+static RESTART_SM_ONBOARD: Signal<ThreadModeRawMutex, bool> = Signal::new();
+static RESTART_SM_PROBE: Signal<ThreadModeRawMutex, bool> = Signal::new();
 
 #[embassy_executor::task]
 pub async fn soil_task(mut per: types::ProbePeripherals) {
-    let mut flag = RESTART_SM.dyn_subscriber().unwrap();
     loop {
         select(
-            flag.next_message_pure(),
+            RESTART_SM_PROBE.wait(),
             state_machines::probe::run(&mut per),
         )
         .await;
@@ -27,10 +35,9 @@ pub async fn soil_task(mut per: types::ProbePeripherals) {
 
 #[embassy_executor::task]
 pub async fn onboard_task(mut per: types::OnboardPeripherals) {
-    let mut flag = RESTART_SM.dyn_subscriber().unwrap();
     loop {
         select(
-            flag.next_message_pure(),
+            RESTART_SM_ONBOARD.wait(),
             state_machines::onboard::run(&mut per),
         )
         .await;
@@ -39,6 +46,7 @@ pub async fn onboard_task(mut per: types::OnboardPeripherals) {
 
 /// Restarts all state machines. Make sure the startup state of each state machine
 /// is properly written so as to reset the communication.
-pub async fn restart_state_machines() {
-    RESTART_SM.dyn_immediate_publisher().publish_immediate(true);
+pub fn restart_state_machines() {
+    RESTART_SM_ONBOARD.signal(true);
+    RESTART_SM_PROBE.signal(true);
 }

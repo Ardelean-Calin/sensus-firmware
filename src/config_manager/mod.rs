@@ -19,6 +19,7 @@ use types::ConfigPayload;
 
 use crate::{
     comm_manager::types::{CommResponse, ResponseTypeErr, ResponseTypeOk},
+    common,
     globals::TX_BUS,
     sensors, FLASH_DRIVER,
 };
@@ -36,6 +37,7 @@ pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), Conf
     let config = config.verify()?;
 
     if config == load_sensus_config() {
+        defmt::info!("Config the same as stored config. Skipping rewrite.");
         return Ok(());
     }
 
@@ -66,7 +68,8 @@ pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), Conf
     // Restart all state machines which make use of the config.
     // ble::restart_state_machine();
     // rgb::restart_state_machine();
-    sensors::restart_state_machines().await;
+    sensors::restart_state_machines();
+    defmt::info!("Config loaded successfully!");
     Ok(())
 }
 
@@ -102,6 +105,8 @@ pub async fn process_payload(payload: ConfigPayload) {
                     .publish_immediate(CommResponse::Ok(ResponseTypeOk::Config(
                         ConfigResponse::SetConfig,
                     )));
+                // Restart all state machines that depend on configuration
+                common::restart_state_machines();
             }
             Err(err) => {
                 TX_BUS
