@@ -24,7 +24,6 @@ mod custom_executor;
 use cortex_m_rt::entry;
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_futures::join::join;
 use embassy_nrf::{
     gpio::Pin, gpiote::Channel, peripherals, ppi::ConfigurableChannel, wdt::Watchdog,
 };
@@ -32,7 +31,8 @@ use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use nrf_softdevice::Softdevice;
 use static_cell::StaticCell;
 
-const FIRMWARE_VERSION: &str = "1.0.0-rc";
+// Static not const since static variables have a fixed location in memory.
+static FIRMWARE_VERSION: &str = "1.0.0-rc";
 
 /// Global access to a flash
 static FLASH_DRIVER: Mutex<ThreadModeRawMutex, Option<nrf_softdevice::Flash>> = Mutex::new(None);
@@ -137,7 +137,7 @@ async fn main_task() {
 #[embassy_executor::task]
 async fn watchdog_task(wdt: peripherals::WDT) {
     let mut wdt_config = embassy_nrf::wdt::Config::default();
-    wdt_config.timeout_ticks = 32768 * 3; // 3 seconds
+    wdt_config.timeout_ticks = 32768 * 5; // 5 seconds
     wdt_config.run_during_sleep = true;
     wdt_config.run_during_debug_halt = false; // false so that we can see the panic message in debug mode.
 
