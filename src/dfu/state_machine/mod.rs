@@ -2,6 +2,8 @@ pub mod types;
 
 use defmt::error;
 use defmt::info;
+use defmt::warn;
+use embassy_boot_nrf::AlignedBuffer;
 use embassy_boot_nrf::FirmwareUpdater;
 use embassy_sync::pubsub::DynPublisher;
 use embassy_time::with_timeout;
@@ -79,14 +81,6 @@ pub async fn run() -> ! {
                     }
                     DfuPayload::RequestFwVersion => {
                         sm = DfuStateMachine::new();
-                        let mut magic = [0; 4];
-
-                        // If we got queried for the firmware version, we are clearly booted and at least the DFU
-                        // seems to be working.
-                        let mut f = FLASH_DRIVER.lock().await;
-                        let flash_ref = f.as_mut().unwrap();
-                        let _ = updater.mark_booted(flash_ref, &mut magic).await;
-
                         send_response_ok(&data_tx, DfuResponse::FirmwareVersion(FIRMWARE_VERSION))
                             .await;
                     }
@@ -153,13 +147,21 @@ pub async fn run() -> ! {
                 // Mark the firmware as updated and reset!
                 let mut f = FLASH_DRIVER.lock().await;
                 let flash_ref = f.as_mut().unwrap();
-                let mut magic = [0; 4];
-                updater.mark_updated(flash_ref, &mut magic).await.unwrap();
+                let mut magic = AlignedBuffer([0u8; 4]);
+                updater
+                    .mark_updated(flash_ref, magic.as_mut())
+                    .await
+                    .unwrap();
                 // Reset microcontroller.
                 cortex_m::peripheral::SCB::sys_reset();
             }
             DfuSmState::Error(e) => {
-                error!("DFU Error: {:?}", e);
+                match e {
+                    DfuError::StateMachineError => {
+                        error!("DFU State Machine error. Maybe counter not ok?")
+                    }
+                    DfuError::TimeoutError => warn!("DFU Timeout. Resetting state machine."),
+                }
                 send_response_err(&data_tx, e).await;
                 sm = DfuStateMachine::new();
             }

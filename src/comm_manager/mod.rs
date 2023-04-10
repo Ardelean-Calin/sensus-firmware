@@ -3,7 +3,9 @@ use crate::{
     ble::MAC_ADDRESS,
     globals::{RX_BUS, TX_BUS},
     sensors::LATEST_SENSOR_DATA,
+    FLASH_DRIVER,
 };
+use embassy_boot_nrf::{AlignedBuffer, FirmwareUpdater};
 use types::{CommResponse, ResponseTypeErr};
 
 /// This is the main Communication loop. It handles everything communication-related.
@@ -16,11 +18,27 @@ async fn comm_mgr_loop() {
         .dyn_publisher()
         .expect("Failed to acquire publisher.");
 
+    let mut marked_booted = false;
+
     loop {
         match data_rx.next_message_pure().await {
             Ok(packet) => {
                 match packet.payload {
                     types::CommPacketType::DfuPacket(payload) => {
+                        if !marked_booted {
+                            // If we got a DFU message, we are clearly booted and at least the DFU
+                            // seems to be working.
+                            let mut updater = FirmwareUpdater::default();
+                            let mut magic = AlignedBuffer([0u8; 4]);
+                            let mut f = FLASH_DRIVER.lock().await;
+                            let flash_ref = f.as_mut().unwrap();
+                            updater
+                                .mark_booted(flash_ref, magic.as_mut())
+                                .await
+                                .unwrap();
+                            marked_booted = true;
+                            defmt::info!("DFU WAS SUCCESSFUL.");
+                        };
                         // Feed to DFU state machine for processing.
                         crate::dfu::process_payload(payload).await;
                     }
