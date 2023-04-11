@@ -1,10 +1,10 @@
 use defmt::error;
+use embassy_futures::join::join;
+use embassy_futures::select::select;
 
 use super::serial_init;
 use crate::globals::{RX_BUS, TX_BUS};
-use crate::power_manager::PLUGGED_DETECT;
-use crate::run_while_plugged_in;
-use embassy_futures::join::join;
+use crate::power_manager::{self};
 use embassy_nrf::gpio::AnyPin;
 use embassy_nrf::peripherals;
 use embassy_nrf::peripherals::UARTE0;
@@ -48,13 +48,14 @@ pub async fn serial_task(
     mut pin_tx: AnyPin,
     mut pin_rx: AnyPin,
 ) {
-    run_while_plugged_in!(PLUGGED_DETECT, async {
-        defmt::info!("Started UART communication.");
-        let (mut tx, mut rx) = serial_init(&mut instance, &mut pin_tx, &mut pin_rx);
+    loop {
+        power_manager::wait_for_hp().await;
+        select(power_manager::wait_for_lp(), async {
+            defmt::info!("Started UART communication.");
+            let (mut tx, mut rx) = serial_init(&mut instance, &mut pin_tx, &mut pin_rx);
 
-        loop {
             join(uart_rx_task(&mut rx), uart_tx_task(&mut tx)).await;
-        }
-    })
-    .await
+        })
+        .await;
+    }
 }

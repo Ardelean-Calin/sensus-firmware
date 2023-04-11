@@ -15,6 +15,7 @@ mod config_manager;
 mod dfu;
 mod globals;
 mod power_manager;
+mod rgb;
 mod sensors;
 mod serial;
 mod types;
@@ -78,7 +79,7 @@ async fn main_task() {
     spawner.must_spawn(watchdog_task(p.WDT)); // This has to be the first one.
 
     spawner.must_spawn(softdevice_task(sd));
-    spawner.must_spawn(power_manager::power_state_task(p.P0_04.degrade()));
+    spawner.must_spawn(power_manager::pwr_detect_task(p.P0_04.degrade()));
 
     // Onboard sensor aquisition task.
     let onboard_per = sensors::types::OnboardPeripherals {
@@ -116,6 +117,8 @@ async fn main_task() {
         p.P0_03.degrade(),
         p.P0_02.degrade(),
     ));
+
+    spawner.must_spawn(rgb::rgb_task());
     // spawner.must_spawn(drivers::rgb::rgb_task(
     //     p.PWM0,
     //     p.P0_28.degrade(),

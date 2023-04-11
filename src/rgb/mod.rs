@@ -4,11 +4,11 @@ use embassy_nrf::{peripherals::PWM0, pwm::SimplePwm};
 use embassy_time::{Duration, Instant, Ticker};
 use futures::StreamExt;
 
-use crate::PLUGGED_DETECT;
+use crate::power_manager::{wait_for_hp, wait_for_lp};
 
 // mod impls;
 // mod types;
-pub mod tasks;
+// pub mod tasks;
 // // This is an external struct that will be used to transition the LEDs.
 // pub(crate) use types::RGBTransition;
 
@@ -143,20 +143,16 @@ async fn rgb_ticker(mut status_led: StatusLed<'_, PWM0>) {
 }
 
 #[embassy_executor::task]
-pub async fn rgb_task(
-    mut pwm: embassy_nrf::peripherals::PWM0,
-    mut pin_red: embassy_nrf::gpio::AnyPin,
-    mut pin_green: embassy_nrf::gpio::AnyPin,
-    mut pin_blue: embassy_nrf::gpio::AnyPin,
+pub async fn rgb_task(// mut pwm: embassy_nrf::peripherals::PWM0,
+    // mut pin_red: embassy_nrf::gpio::AnyPin,
+    // mut pin_green: embassy_nrf::gpio::AnyPin,
+    // mut pin_blue: embassy_nrf::gpio::AnyPin,
 ) {
-    run_while_plugged_in!(
-        PLUGGED_DETECT,
-        rgb_ticker(StatusLed::new(
-            &mut pwm,
-            &mut pin_red,
-            &mut pin_green,
-            &mut pin_blue
-        ))
-    )
-    .await
+    defmt::info!("Started RGB task");
+    loop {
+        wait_for_hp().await;
+        defmt::info!("RGB task went into High Power");
+        wait_for_lp().await;
+        defmt::info!("RGB task went into Low Power");
+    }
 }
