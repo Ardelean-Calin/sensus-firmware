@@ -87,6 +87,7 @@ crc = "3.0.1"
 postcard = { version = "1.0.4", features = ["heapless"] }
 serde = { version = "1.0.*", default-features = false }
 serde_repr = "0.1.10"
+panic-reset = "0.1.1"
 [patch.crates-io]
 nrf52832-pac = { git = "https://github.com/Ardelean-Calin/nrf-pacs.git" }
 
