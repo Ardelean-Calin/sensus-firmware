@@ -27,7 +27,10 @@ async fn payload_mgr_loop() {
                 sensordata.feed_onboard(data);
 
                 // Return a new advertisment payload.
-                adv_payload.with_onboard_data(sensordata.get_onboard())
+                let filtered = sensordata.get_onboard();
+                adv_payload
+                    .with_onboard_data(filtered)
+                    .with_battery(filtered.battery_level.value <= 2.4f32)
             }
             Either::Second(data) => {
                 sensordata.feed_probe(data);

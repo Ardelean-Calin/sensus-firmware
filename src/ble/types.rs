@@ -20,6 +20,7 @@ pub struct AdvertismentPayload {
     pub soil_temperature: Option<bthome::fields::Temperature_100mK>,
     pub uptime: Option<bthome::fields::Count_4bytes>,
     pub plugged_in: Option<bthome::flags::Plugged_In>,
+    pub battery_ok: Option<bthome::flags::Battery>,
     pub packet_id: Option<bthome::fields::PacketID>,
     // TODO. Add errors and stuff.
 }
@@ -64,6 +65,13 @@ impl AdvertismentPayload {
         }
     }
 
+    pub fn with_battery(self, battery_ok: bool) -> Self {
+        Self {
+            battery_ok: Some(battery_ok.into()),
+            ..self
+        }
+    }
+
     fn length(&self) -> usize {
         bthome_length!(self.battery_level)
             + bthome_length!(self.air_temperature)
@@ -73,6 +81,8 @@ impl AdvertismentPayload {
             + bthome_length!(self.soil_temperature)
             + bthome_length!(self.uptime)
             + bthome_length!(self.plugged_in)
+            + bthome_length!(self.battery_ok)
+            + bthome_length!(self.packet_id)
     }
 
     pub fn as_vec(&self) -> Vec<u8, 64> {
@@ -88,6 +98,8 @@ impl AdvertismentPayload {
         extend_if_some!(my_vec, self.soil_temperature);
         extend_if_some!(my_vec, self.uptime);
         extend_if_some!(my_vec, self.plugged_in);
+        extend_if_some!(my_vec, self.battery_ok);
+        extend_if_some!(my_vec, self.packet_id);
 
         my_vec
     }
