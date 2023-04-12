@@ -61,8 +61,10 @@ impl<M: RawMutex, const N: usize> MultiWaker<M, N> {
     }
 }
 
-/// I am using MultiWakerRegistration to wake multiple async tasks.
-pub static POWER_WAKER: MultiWaker<ThreadModeRawMutex, 2> = MultiWaker::new();
+/// I am using MultiWakerRegistration to wake multiple async tasks. NOTE: I need to carefully
+/// consider the size of the MultiWaker... For now it's two since I have two power-dependednt
+/// tasks.
+pub static POWER_WAKER: MultiWaker<ThreadModeRawMutex, 3> = MultiWaker::new();
 // Used by other parts in our program.
 pub static PLUGGED_IN_FLAG: AtomicBool = AtomicBool::new(false);
 
