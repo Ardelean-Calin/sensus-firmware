@@ -118,20 +118,12 @@ async fn main_task() {
         p.P0_02.degrade(),
     ));
 
-    spawner.must_spawn(rgb::rgb_task());
-    // spawner.must_spawn(drivers::rgb::rgb_task(
-    //     p.PWM0,
-    //     p.P0_28.degrade(),
-    //     p.P0_26.degrade(),
-    //     p.P0_27.degrade(),
-    // ));
-    // TODO: move these tasks
-    // spawner.must_spawn(drivers::rgb::tasks::rgb_task(
-    //     p.PWM0,
-    //     p.P0_28.degrade(),
-    //     p.P0_26.degrade(),
-    //     p.P0_27.degrade(),
-    // ));
+    spawner.must_spawn(rgb::rgb_task(
+        p.PWM0,
+        p.P0_28.degrade(),
+        p.P0_26.degrade(),
+        p.P0_27.degrade(),
+    ));
 
     // Should await forever.
     ble::coroutines::advertisment_loop(sd).await;
