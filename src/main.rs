@@ -5,6 +5,9 @@
 #![feature(result_flattening)]
 #![feature(once_cell)]
 
+#[macro_use]
+extern crate bthome;
+
 // Needs to come before everything.
 mod prelude;
 

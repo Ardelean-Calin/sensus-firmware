@@ -1,9 +1,7 @@
 use core::sync::atomic::AtomicU32;
 
 use embassy_futures::select::select;
-use embassy_sync::{
-    blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex, pubsub::PubSubChannel, signal::Signal,
-};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex, signal::Signal};
 
 use self::types::SensorDataRaw;
 

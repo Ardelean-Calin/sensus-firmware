@@ -31,7 +31,7 @@ pub struct SensusConfig {
     pub sampling_period: SamplePeriod,
     pub status_led: StatusLedControl,
     #[defmt(Display2Format)]
-    pub name: heapless::String<16>,
+    pub name: heapless::String<29>,
 }
 
 #[derive(Serialize, Deserialize, Format, Default, Clone, PartialEq)]

@@ -1,17 +1,15 @@
-use crate::power_manager::PLUGGED_IN_FLAG;
 use crate::sensors::types::SensorDataFiltered;
 use crate::sensors::LATEST_SENSOR_DATA;
 
 use embassy_futures::select::{select, Either};
-use embassy_time::Instant;
 
-use crate::ble::types::AdvertismentPayload;
-use crate::globals::{BLE_ADV_PKT_QUEUE, ONBOARD_DATA_SIG, PROBE_DATA_SIG};
+use crate::ble::types::BTHomeAD;
+use crate::globals::{BTHOME_QUEUE, ONBOARD_DATA_SIG, PROBE_DATA_SIG};
 
 /// This loop receives data from different parts of the program and packs this data
-/// into an AdvertismentPayload. Then it sends this payload to be processed.
+/// into an BTHomeAD. Then it sends this payload to be processed.
 async fn payload_mgr_loop() {
-    let mut adv_payload = AdvertismentPayload::default();
+    let mut bthome_payload = BTHomeAD::default();
 
     let mut sensordata = SensorDataFiltered::default();
 
@@ -22,21 +20,27 @@ async fn payload_mgr_loop() {
     // data, etc.
     loop {
         // Wait for either new onboard data or new probe data.
-        adv_payload = match select(ONBOARD_DATA_SIG.wait(), PROBE_DATA_SIG.wait()).await {
+        bthome_payload = match select(ONBOARD_DATA_SIG.wait(), PROBE_DATA_SIG.wait()).await {
             Either::First(data) => {
                 sensordata.feed_onboard(data);
 
                 // Return a new advertisment payload.
                 let filtered = sensordata.get_onboard();
-                adv_payload
-                    .with_onboard_data(filtered)
-                    .with_battery_low(filtered.battery_level.value <= 2.4f32)
+                bthome_payload
+                    .air_humidity((filtered.environment_data.humidity as u8).into())
+                    .air_temperature(((filtered.environment_data.temperature * 10.0) as i16).into())
+                    .illuminance(((filtered.environment_data.illuminance * 100.0) as u32).into())
+                    .battery_level(((filtered.battery_level.value * 1000.0) as u16).into())
+                    .battery_low((filtered.battery_level.value <= 2.4f32).into())
             }
             Either::Second(data) => {
                 sensordata.feed_probe(data);
+                let filtered = sensordata.get_probe();
 
                 // Return a new advertisment payload.
-                adv_payload.with_probe_data(sensordata.get_probe())
+                bthome_payload
+                    .soil_temperature(((filtered.temperature * 10.0) as i16).into())
+                    .soil_humidity((filtered.moisture as u8).into())
             }
         };
         // Replace the latest sensor data with the filtered one.
@@ -45,11 +49,8 @@ async fn payload_mgr_loop() {
             .await
             .replace(sensordata.get_raw());
 
-        adv_payload = adv_payload.with_uptime(Instant::now());
-        adv_payload = adv_payload
-            .with_plugged_in(PLUGGED_IN_FLAG.load(core::sync::atomic::Ordering::Relaxed));
         // This call is debounced by the BLE state machine.
-        BLE_ADV_PKT_QUEUE.send(adv_payload).await;
+        BTHOME_QUEUE.send(bthome_payload.clone()).await;
     }
 }
 

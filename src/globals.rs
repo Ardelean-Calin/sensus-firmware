@@ -3,7 +3,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::pubsub::PubSubChannel;
 use embassy_sync::signal::Signal;
 
-use crate::ble::types::AdvertismentPayload;
+use crate::ble::types::BTHomeAD;
 use crate::comm_manager::types::CommResponse;
 use crate::comm_manager::types::{CommPacket, PacketError};
 use crate::sensors::types::OnboardSample;
@@ -21,4 +21,4 @@ pub static ONBOARD_DATA_SIG: Signal<ThreadModeRawMutex, OnboardSample> = Signal:
 pub static PROBE_DATA_SIG: Signal<ThreadModeRawMutex, ProbeSample> = Signal::new();
 
 /// Receives advertisment payload.
-pub static BLE_ADV_PKT_QUEUE: Channel<ThreadModeRawMutex, AdvertismentPayload, 1> = Channel::new();
+pub static BTHOME_QUEUE: Channel<ThreadModeRawMutex, BTHomeAD, 1> = Channel::new();

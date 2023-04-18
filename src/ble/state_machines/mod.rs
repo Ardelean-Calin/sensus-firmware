@@ -3,7 +3,7 @@ pub mod types;
 use embassy_time::{with_timeout, Duration};
 
 use crate::config_manager::SENSUS_CONFIG;
-use crate::globals::BLE_ADV_PKT_QUEUE;
+use crate::globals::BTHOME_QUEUE;
 use types::{BleSM, BleSMState};
 
 use crate::ble::types::AdvertismentData;
@@ -14,7 +14,6 @@ use crate::ble::ADV_DATA;
 pub async fn run() {
     let mut sm = BleSM::new();
     let mut current_adv_data = AdvertismentData::default();
-    let mut packet_id = 0x00u8;
 
     loop {
         match sm.state {
@@ -26,15 +25,15 @@ pub async fn run() {
                 sm = sm.with_state(BleSMState::WaitForAdvdata);
             }
             BleSMState::WaitForAdvdata => {
-                let payload = BLE_ADV_PKT_QUEUE.recv().await.with_packet_id(packet_id);
-                current_adv_data = current_adv_data.with_payload(payload);
+                let bthome_ad = BTHOME_QUEUE.recv().await;
+                current_adv_data = current_adv_data.with_bthome(bthome_ad);
                 sm = sm.with_state(BleSMState::Debounce);
             }
             // Debounce new received data so that I don't publish more often than every 250ms
             BleSMState::Debounce => {
                 match with_timeout(Duration::from_millis(250), async {
-                    let payload = BLE_ADV_PKT_QUEUE.recv().await;
-                    current_adv_data.with_payload(payload)
+                    let bthome_ad = BTHOME_QUEUE.recv().await;
+                    current_adv_data.with_bthome(bthome_ad)
                 })
                 .await
                 {
@@ -44,7 +43,6 @@ pub async fn run() {
                     }
                     Err(_e) => {
                         // Timeout occured, so we debounced the received messages. We can go to the next state.
-                        packet_id += 1;
                         sm = sm.with_state(BleSMState::Advertising);
                     }
                 }
