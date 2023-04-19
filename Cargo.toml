@@ -8,7 +8,14 @@ edition = "2021"
 
 
 [features]
-default = ["ble-gatt-server", "ble-sec", "nrf52832", "ble-l2cap", "softdevice"]
+default = [
+    "ble-gatt-server",
+    "ble-sec",
+    "nrf52832",
+    "ble-l2cap",
+    "softdevice",
+    "defmt",
+]
 
 ble-l2cap = ["nrf-softdevice/ble-l2cap"]
 ble-gatt-server = ["nrf-softdevice/ble-gatt-server"]
@@ -46,7 +53,7 @@ embassy-boot-nrf = { version = "0.1.0", git = "https://github.com/Ardelean-Calin
 embassy-embedded-hal = { version = "0.1.0", git = "https://github.com/Ardelean-Calin/embassy.git" }
 cortex-m = "0.7.6"
 cortex-m-rt = "0.7.0"
-defmt = "0.3.2"
+defmt = { version = "0.3.2", optional = true }
 defmt-rtt = "0.3.2"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 nrf-softdevice = { version = "0.1.0", features = [
