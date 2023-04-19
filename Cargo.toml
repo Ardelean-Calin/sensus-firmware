@@ -82,7 +82,9 @@ panic-persist = { version = "0.3.0", features = ["min-panic"] }
 # My libraries
 cobs = { version = "0.2.3", default-features = false }
 
-bthome = { version = "0.1.0", git = "https://github.com/Ardelean-Calin/bthome-rs.git" }
+bthome = { version = "0.1.0", git = "https://github.com/Ardelean-Calin/bthome-rs.git", tag = "0.1.0", features = [
+    "defmt",
+] }
 bitbang-hal = "0.3.2"
 crc = "3.0.1"
 postcard = { version = "1.0.4", features = ["heapless"] }

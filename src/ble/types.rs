@@ -40,7 +40,7 @@ impl AdvertismentData {
 
     /// Builds a BTHome AD element. Each AD element is maximum 31 bytes long.
     pub fn get_ad_bthome(&self) -> Vec<u8, 31> {
-        self.bthome.as_vec()
+        defmt::unwrap!(self.bthome.as_vec())
     }
 
     pub fn get_ad_localname(&self) -> Vec<u8, 31> {
