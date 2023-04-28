@@ -6,13 +6,13 @@ use defmt::{unwrap, Format};
 
 build_bthome_ad!(
     struct BTHomeAD {
-        battery_level: bthome::fields::Voltage_1mV,
-        air_temperature: bthome::fields::Temperature_100mK,
-        air_humidity: bthome::fields::Humidity_1Per,
         illuminance: bthome::fields::Illuminance_10mLux,
-        soil_humidity: bthome::fields::Moisture_1Per,
-        soil_temperature: bthome::fields::Temperature_100mK,
+        battery_level: bthome::fields::Voltage_1mV,
         battery_low: bthome::flags::Battery,
+        air_humidity: bthome::fields::Humidity_1Per,
+        soil_humidity: bthome::fields::Moisture_1Per,
+        air_temperature: bthome::fields::Temperature_100mK,
+        soil_temperature: bthome::fields::Temperature_100mK,
     }
 );
 
