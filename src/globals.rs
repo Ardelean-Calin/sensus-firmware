@@ -10,7 +10,7 @@ use crate::sensors::types::OnboardSample;
 use crate::sensors::types::ProbeSample;
 
 /// Used by BLE & UART to send data to the DFU State Machine. That's why we have two publishers.
-pub static RX_BUS: PubSubChannel<ThreadModeRawMutex, Result<CommPacket, PacketError>, 3, 1, 2> =
+pub static RX_BUS: PubSubChannel<ThreadModeRawMutex, Result<CommPacket, PacketError>, 3, 2, 2> =
     PubSubChannel::new();
 
 /// Used by DFU to send data. Either via UART or BLE => that's why we have two subscribers.

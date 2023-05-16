@@ -36,7 +36,7 @@ use nrf_softdevice::Softdevice;
 use static_cell::StaticCell;
 
 // Static not const since static variables have a fixed location in memory.
-static FIRMWARE_VERSION: &str = "1.0.0-rc";
+static FIRMWARE_VERSION: &str = "v0.0.1";
 
 /// Global access to a flash
 static FLASH_DRIVER: Mutex<ThreadModeRawMutex, Option<nrf_softdevice::Flash>> = Mutex::new(None);
@@ -129,6 +129,7 @@ async fn main_task() {
     ));
 
     // Should await forever.
+    // Alternatively: pending::<()>().await;
     ble::coroutines::advertisment_loop(sd).await;
 }
 
