@@ -26,6 +26,7 @@ impl Add for ProbeSample {
         ProbeSample {
             moisture: self.moisture + rhs.moisture,
             temperature: self.temperature + rhs.temperature,
+            moisture_raw: self.moisture_raw + rhs.moisture_raw,
         }
     }
 }
@@ -37,6 +38,7 @@ impl Sub for ProbeSample {
         ProbeSample {
             moisture: self.moisture - rhs.moisture,
             temperature: self.temperature - rhs.temperature,
+            moisture_raw: self.moisture_raw - rhs.moisture_raw,
         }
     }
 }
@@ -48,6 +50,7 @@ impl Mul<f32> for ProbeSample {
         ProbeSample {
             moisture: self.moisture * rhs,
             temperature: self.temperature * rhs,
+            moisture_raw: self.moisture_raw * rhs,
         }
     }
 }
@@ -152,6 +155,7 @@ pub async fn sample_soil(mut hw: ProbeHardware<'_>) -> Result<ProbeSample, Error
 
     let moisture = moisture_from_freq(frequency);
     Ok(ProbeSample {
+        moisture_raw: frequency as f32,
         moisture,
         temperature,
     })

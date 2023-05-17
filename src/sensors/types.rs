@@ -58,8 +58,9 @@ pub struct ProbePeripherals {
 
 #[derive(Serialize, Format, Clone, Copy, Default)]
 pub struct ProbeSample {
-    pub moisture: f32,    // 0 - 100%
-    pub temperature: f32, // °C
+    pub moisture: f32,     // 0 - 100%
+    pub moisture_raw: f32, // Raw frequency measurement [Hz]
+    pub temperature: f32,  // °C
 }
 
 pub type ProbeFilter = Filter<ProbeSample>;
