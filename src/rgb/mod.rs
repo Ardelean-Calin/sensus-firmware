@@ -12,7 +12,6 @@ use embassy_time::{Duration, Ticker, Timer};
 use heapless::Vec;
 
 use crate::{
-    config_manager::{types::StatusLedControl, SENSUS_CONFIG},
     globals::RX_BUS,
     power_manager::{wait_for_hp, wait_for_lp},
 };

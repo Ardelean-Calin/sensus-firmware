@@ -1,6 +1,7 @@
 use core::str::FromStr;
 
 use defmt::Format;
+use heapless::Vec;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Format, Clone)]
@@ -24,22 +25,32 @@ pub struct SamplePeriod {
     pub probe_sdt_battery_ms: u32,
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct DisplayableVec<T, const N: usize>(Vec<T, N>);
+
+impl<T, const N: usize> DisplayableVec<T, N> {
+    pub fn inner(self) -> Vec<T, N> {
+        self.0
+    }
+}
+
+impl<T, const N: usize> Format for DisplayableVec<T, N>
+where
+    T: defmt::Format,
+{
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "{}", self.0.as_slice())
+    }
+}
+
 // Declarations
 #[repr(C)]
 #[derive(Serialize, Deserialize, Format, Clone, PartialEq)]
 pub struct SensusConfig {
     pub sampling_period: SamplePeriod,
-    pub status_led: StatusLedControl,
-    #[defmt(Display2Format)]
+    #[defmt(Display2Format)] // TODO. Remove and replace with Format implementation
     pub name: heapless::String<29>,
-}
-
-#[derive(Serialize, Deserialize, Format, Default, Clone, PartialEq)]
-pub enum StatusLedControl {
-    Always,
-    #[default]
-    PluggedIn,
-    Off,
+    pub probe_calibration: DisplayableVec<f32, 20>,
 }
 
 #[derive(Serialize, Deserialize, Format, Clone)]
@@ -73,8 +84,8 @@ impl Default for SensusConfig {
     fn default() -> Self {
         Self {
             sampling_period: Default::default(),
-            status_led: StatusLedControl::PluggedIn,
             name: heapless::String::from_str("Sensus").unwrap(),
+            probe_calibration: DisplayableVec(Vec::from_slice(&[1e5, 1.0, 1.7e6, 0.0]).unwrap()),
         }
     }
 }

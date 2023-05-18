@@ -64,12 +64,13 @@ pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), Conf
     }
 
     // Store a mirror image of the latest config in RAM.
-    *SENSUS_CONFIG.lock().await = Some(config);
+    *SENSUS_CONFIG.lock().await = Some(config.clone());
     // Restart all state machines which make use of the config.
     ble::restart_state_machine();
     sensors::restart_state_machines();
     // rgb::restart_state_machine();
     defmt::info!("Config loaded successfully!");
+    defmt::info!("New config: {}", config);
     Ok(())
 }
 
