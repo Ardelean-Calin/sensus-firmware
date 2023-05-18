@@ -1,3 +1,5 @@
+use core::cmp::{max, min};
+
 use defmt::unwrap;
 use embassy_futures::select::{select, select3};
 use embassy_nrf::{
@@ -46,7 +48,7 @@ enum AppStates {
 
 struct Keyframe {
     time_ms: u16,
-    value: RgbValue,
+    value: HSVColor,
 }
 
 type Keyframes = [Option<Keyframe>; 10];
@@ -74,79 +76,118 @@ pub fn deactivate_connected_pattern() {}
 pub fn activate_dfu_pattern() {}
 pub fn deactivate_dfu_pattern() {}
 
-#[derive(Default, Clone, Copy)]
-struct RgbValue {
-    red: f32,
-    green: f32,
-    blue: f32,
+trait Abs {
+    fn abs(&self) -> f32;
 }
 
-impl RgbValue {
+impl Abs for f32 {
+    fn abs(&self) -> f32 {
+        if self.max(0.0) == 0.0 {
+            -self.clone()
+        } else {
+            self.clone()
+        }
+    }
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Debug)]
+struct RGBColor {
+    r: f32,
+    g: f32,
+    b: f32,
+}
+
+#[derive(Default, Clone, Copy)]
+struct HSVColor {
+    h: f32, // angle: 0 - 360
+    s: f32, // 0 - 1
+    v: f32, // 0 - 1
+}
+
+impl HSVColor {
     fn red() -> Self {
         Self {
-            red: 1.0,
-            green: 0.0,
-            blue: 0.0,
+            h: 0.0,
+            s: 1.0,
+            v: 1.0,
         }
     }
 
     fn green() -> Self {
         Self {
-            red: 0.0,
-            green: 1.0,
-            blue: 0.0,
+            h: 120.0,
+            s: 1.0,
+            v: 1.0,
         }
     }
 
     fn blue() -> Self {
         Self {
-            red: 0.0,
-            green: 0.0,
-            blue: 1.0,
+            h: 240.0,
+            s: 1.0,
+            v: 1.0,
+        }
+    }
+
+    fn to_rgb(&self) -> RGBColor {
+        fn formula(color: &HSVColor, n: usize) -> f32 {
+            let k = ((n as f32) + color.h / 60.0) % 6.0;
+
+            color.v - color.v * color.s * 0.0f32.max(k.min(1.0f32.min(4.0f32 - k)))
+        }
+
+        let red = formula(self, 5);
+        let green = formula(self, 3);
+        let blue = formula(self, 1);
+
+        RGBColor {
+            r: red,
+            g: green,
+            b: blue,
         }
     }
 
     fn off() -> Self {
         Self {
-            red: 0.0,
-            green: 0.0,
-            blue: 0.0,
+            h: 0.0,
+            s: 0.0,
+            v: 0.0,
         }
     }
 }
 
-impl core::ops::Sub<RgbValue> for RgbValue {
-    type Output = RgbValue;
+impl core::ops::Sub<HSVColor> for HSVColor {
+    type Output = HSVColor;
 
-    fn sub(self, rhs: RgbValue) -> Self::Output {
-        RgbValue {
-            red: (self.red - rhs.red),
-            green: (self.green - rhs.green),
-            blue: (self.blue - rhs.blue),
+    fn sub(self, rhs: HSVColor) -> Self::Output {
+        HSVColor {
+            h: (self.h - rhs.h),
+            s: (self.s - rhs.s),
+            v: (self.v - rhs.v),
         }
     }
 }
 
-impl core::ops::Div<usize> for RgbValue {
-    type Output = RgbValue;
+impl core::ops::Div<usize> for HSVColor {
+    type Output = HSVColor;
 
     fn div(self, rhs: usize) -> Self::Output {
-        RgbValue {
-            red: self.red / (rhs as f32),
-            green: self.green / (rhs as f32),
-            blue: self.blue / (rhs as f32),
+        HSVColor {
+            h: self.h / (rhs as f32),
+            s: self.s / (rhs as f32),
+            v: self.v / (rhs as f32),
         }
     }
 }
 
-impl core::ops::Add<RgbValue> for RgbValue {
-    type Output = RgbValue;
+impl core::ops::Add<HSVColor> for HSVColor {
+    type Output = HSVColor;
 
-    fn add(self, rhs: RgbValue) -> Self::Output {
-        RgbValue {
-            red: self.red + rhs.red,
-            green: self.green + rhs.green,
-            blue: self.blue + rhs.blue,
+    fn add(self, rhs: HSVColor) -> Self::Output {
+        HSVColor {
+            h: self.h + rhs.h,
+            s: self.s + rhs.s,
+            v: self.v + rhs.v,
         }
     }
 }
@@ -165,7 +206,7 @@ where
     T: embassy_nrf::pwm::Instance,
 {
     pwm: SequencePwm<'a, T>,
-    raw_value: RgbValue,
+    raw_value: HSVColor,
     brightness: f32,
 }
 impl<'a, T: embassy_nrf::pwm::Instance> StatusLed<'a, T> {
@@ -184,13 +225,13 @@ impl<'a, T: embassy_nrf::pwm::Instance> StatusLed<'a, T> {
         ));
         StatusLed {
             pwm: mypwm,
-            raw_value: RgbValue::off(),
+            raw_value: HSVColor::off(),
             brightness: 4095.0,
         }
     }
 
-    async fn transition_value(&mut self, target: RgbValue, duration: Duration) {
-        const STEPS: usize = 24;
+    async fn transition_value(&mut self, target: HSVColor, duration: Duration) {
+        const STEPS: usize = 100;
         const SIZE: usize = STEPS * 4; // 4, one for each channel, Ch0, Ch1, Ch2 and Ch3. Doesn't matter that we don't use every channel
         let difference = target - self.raw_value;
         // To transition from the current color to that color, I need to do STEPS number of delta_val
@@ -206,11 +247,12 @@ impl<'a, T: embassy_nrf::pwm::Instance> StatusLed<'a, T> {
                 *state = *state + delta_val;
                 Some(*state)
             })
+            .map(|v| v.to_rgb())
             .flat_map(|v| {
                 [
-                    (v.red * 1000.0) as u16,
-                    (v.green * 1000.0) as u16,
-                    (v.blue * 1000.0) as u16,
+                    (v.r * 1000.0) as u16,
+                    (v.g * 1000.0) as u16,
+                    (v.b * 1000.0) as u16,
                     0u16, // Appearently this is needed, as we have 4 PWM channels
                 ]
             })
@@ -225,15 +267,25 @@ impl<'a, T: embassy_nrf::pwm::Instance> StatusLed<'a, T> {
     // async fn transition_brightnes()
 
     async fn self_check(&mut self) {
-        for _ in 0..2 {
-            self.transition_value(RgbValue::red(), Duration::from_millis(300))
-                .await;
-            self.transition_value(RgbValue::green(), Duration::from_millis(300))
-                .await;
-            self.transition_value(RgbValue::blue(), Duration::from_millis(300))
-                .await;
-        }
-        self.transition_value(RgbValue::off(), Duration::from_millis(300))
+        self.transition_value(
+            HSVColor {
+                h: 0.0,
+                s: 1.0,
+                v: 1.0,
+            },
+            Duration::from_millis(300),
+        )
+        .await;
+        self.transition_value(
+            HSVColor {
+                h: 300.0,
+                s: 1.0,
+                v: 1.0,
+            },
+            Duration::from_millis(3000),
+        )
+        .await;
+        self.transition_value(HSVColor::off(), Duration::from_millis(300))
             .await;
     }
 }
@@ -260,10 +312,10 @@ pub async fn rgb_task(
                 StatusLed::new(&mut pwm, &mut pin_red, &mut pin_green, &mut pin_blue);
             for _ in 0..3 {
                 statusled
-                    .transition_value(RgbValue::green(), Duration::from_millis(250))
+                    .transition_value(HSVColor::green(), Duration::from_millis(250))
                     .await;
                 statusled
-                    .transition_value(RgbValue::off(), Duration::from_millis(250))
+                    .transition_value(HSVColor::off(), Duration::from_millis(250))
                     .await;
             }
         }
@@ -279,10 +331,10 @@ pub async fn rgb_task(
                         let mut statusled =
                             StatusLed::new(&mut pwm, &mut pin_red, &mut pin_green, &mut pin_blue);
                         statusled
-                            .transition_value(RgbValue::green(), Duration::from_millis(100))
+                            .transition_value(HSVColor::green(), Duration::from_millis(100))
                             .await;
                         statusled
-                            .transition_value(RgbValue::off(), Duration::from_millis(100))
+                            .transition_value(HSVColor::off(), Duration::from_millis(100))
                             .await;
                     }
                     embassy_futures::select::Either::Second(_) => {

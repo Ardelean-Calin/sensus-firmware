@@ -1,6 +1,7 @@
 use core::str::FromStr;
 
 use defmt::Format;
+use heapless::Vec;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Format, Clone)]
