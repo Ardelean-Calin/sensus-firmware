@@ -14,15 +14,17 @@ const CONFIG_SIZE: usize = size_of::<types::SensusConfig>();
 // Public interfaces.
 pub mod types;
 
+use core::sync::atomic::Ordering::Relaxed;
 use embassy_boot_nrf::AlignedBuffer;
 use types::ConfigPayload;
 
 use crate::{
-    ble,
     comm_manager::types::{CommResponse, ResponseTypeErr, ResponseTypeOk},
     common,
     globals::TX_BUS,
-    sensors, FLASH_DRIVER,
+    power_manager::PLUGGED_IN_FLAG,
+    sensors::{ONBOARD_SAMPLE_PERIOD, PROBE_SAMPLE_PERIOD},
+    FLASH_DRIVER,
 };
 
 use self::types::{ConfigError, ConfigResponse, SensusConfig};
@@ -65,9 +67,6 @@ pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), Conf
 
     // Store a mirror image of the latest config in RAM.
     *SENSUS_CONFIG.lock().await = Some(config.clone());
-    // Restart all state machines which make use of the config.
-    ble::restart_state_machine();
-    sensors::restart_state_machines();
     // rgb::restart_state_machine();
     defmt::info!("Config loaded successfully!");
     defmt::info!("New config: {}", config);
@@ -99,7 +98,7 @@ pub async fn process_payload(payload: ConfigPayload) {
                     ConfigResponse::GetConfig(config),
                 )));
         }
-        ConfigPayload::ConfigSet(new_cfg) => match store_sensus_config(new_cfg).await {
+        ConfigPayload::ConfigSet(new_cfg) => match store_sensus_config(new_cfg.clone()).await {
             Ok(_) => {
                 TX_BUS
                     .dyn_immediate_publisher()
@@ -107,6 +106,21 @@ pub async fn process_payload(payload: ConfigPayload) {
                         ConfigResponse::SetConfig,
                     )));
                 // Restart all state machines that depend on configuration
+                match PLUGGED_IN_FLAG.load(Relaxed) {
+                    true => {
+                        ONBOARD_SAMPLE_PERIOD
+                            .store(new_cfg.sampling_period.onboard_sdt_plugged_ms, Relaxed);
+                        PROBE_SAMPLE_PERIOD
+                            .store(new_cfg.sampling_period.probe_sdt_plugged_ms, Relaxed);
+                    }
+                    false => {
+                        ONBOARD_SAMPLE_PERIOD
+                            .store(new_cfg.sampling_period.onboard_sdt_battery_ms, Relaxed);
+                        PROBE_SAMPLE_PERIOD
+                            .store(new_cfg.sampling_period.probe_sdt_battery_ms, Relaxed);
+                    }
+                }
+
                 common::restart_state_machines();
             }
             Err(err) => {

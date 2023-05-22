@@ -1,77 +1,15 @@
 use defmt::unwrap;
-use embassy_futures::select::{select, select3};
-use embassy_nrf::{
-    peripherals::PWM0,
-    ppi::Ppi,
-    pwm::{
-        Prescaler, Sequence, SequenceConfig, SequenceLoad, SequencePwm, Sequencer, SimplePwm,
-        SingleSequenceMode, SingleSequencer,
-    },
+use embassy_futures::select::select;
+use embassy_nrf::pwm::{
+    Prescaler, SequenceConfig, SequenceLoad, SequencePwm, SingleSequenceMode, SingleSequencer,
 };
-use embassy_time::{Duration, Ticker, Timer};
+use embassy_time::{Duration, Timer};
 use heapless::Vec;
 
 use crate::{
     globals::RX_BUS,
     power_manager::{wait_for_hp, wait_for_lp},
 };
-
-// mod impls;
-// mod types;
-// pub mod tasks;
-// // This is an external struct that will be used to transition the LEDs.
-// pub(crate) use types::RGBTransition;
-
-/// Using these global app states I can determine how my LED pattern should look like.
-///
-/// Plugged in:
-///   - Communication via BLE: blue LED blinks fast.
-///   - Communication via UART: green LED blinks fast.
-///   - No Communication: green LED constantly on (or slow heartbeat).
-///   - Error: RED LED blinks fast.
-///
-/// How to implement:
-/// Since all my indications are with blinks, I could increase a MutexCounter whenever I have communication.
-/// Then my task iterates through all mutex counters and blinks for every counter that has a non-zero value.
-/// If all counters have a zero value, we go back to the default heartbeat pattern.
-enum AppStates {
-    // OnBatteryNoComm,
-    // OnBatteryCommBLE,
-    PluggedInNoComm,
-    PluggedInCommUART,
-    PluggedInCommBLE,
-    PluggedInError,
-}
-
-struct Keyframe {
-    time_ms: u16,
-    value: RgbValue,
-}
-
-type Keyframes = [Option<Keyframe>; 10];
-
-// My valid states:
-// USB-powered
-//  - no UART connection
-//      - DFU ongoing
-//      - DFU !ongoing
-//  - UART connection
-//      - DFU ongoing
-//      - DFU !ongoing
-//
-
-// I will create such function pairs for every pattern I want.
-/// Runs when we have external power.
-pub fn activate_ext_pwr_pattern() {}
-pub fn deactivate_ext_pwr_pattern() {}
-
-/// Runs when we are connected to the PC app.
-pub fn activate_connected_pattern() {}
-pub fn deactivate_connected_pattern() {}
-
-/// Runs when DFU is ongoing.
-pub fn activate_dfu_pattern() {}
-pub fn deactivate_dfu_pattern() {}
 
 #[derive(Default, Clone, Copy)]
 struct RgbValue {
@@ -165,7 +103,6 @@ where
 {
     pwm: SequencePwm<'a, T>,
     raw_value: RgbValue,
-    brightness: f32,
 }
 impl<'a, T: embassy_nrf::pwm::Instance> StatusLed<'a, T> {
     fn new(
@@ -184,7 +121,6 @@ impl<'a, T: embassy_nrf::pwm::Instance> StatusLed<'a, T> {
         StatusLed {
             pwm: mypwm,
             raw_value: RgbValue::off(),
-            brightness: 4095.0,
         }
     }
 
@@ -220,8 +156,6 @@ impl<'a, T: embassy_nrf::pwm::Instance> StatusLed<'a, T> {
         Timer::after(duration).await;
         sequencer.stop();
     }
-
-    // async fn transition_brightnes()
 
     async fn self_check(&mut self) {
         for _ in 0..2 {
