@@ -75,7 +75,7 @@ async fn main_task() {
     core::mem::drop(f);
 
     // After we initialized the Flash driver, we can load the config from Flash.
-    config_manager::init().expect("Error initializing config manager.");
+    config_manager::refresh_config().expect("Error initializing config manager.");
 
     // Spawn all the used tasks.
     // TODO: Only spawn the tasks AFTER configuration was loaded from nonvolatile memory.

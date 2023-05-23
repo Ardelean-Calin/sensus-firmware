@@ -73,18 +73,31 @@ pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), Conf
     Ok(())
 }
 
-/// Loads the saved configuration from flash.
+/// Loads the saved configuration from flash and performs all necessary configurations.
 pub fn load_sensus_config() -> types::SensusConfig {
-    unsafe {
+    let buf = unsafe {
         let p_config_start: *const u32 = &__config_section_start__;
         let ptr = core::slice::from_raw_parts(p_config_start as *const u8, CONFIG_SIZE);
         // I need to clone the data into a pointer found in the stack, otherwise I can't decode it in-place since
         // the Flash is read-only.
         let mut buf = [0u8; CONFIG_SIZE];
         buf.clone_from_slice(ptr);
-        let cfg: types::SensusConfig = postcard::from_bytes(&buf).unwrap_or_default();
-        cfg
+        buf
+    };
+    let cfg: types::SensusConfig = postcard::from_bytes(&buf).unwrap_or_default();
+
+    // Restart all state machines that depend on configuration
+    match PLUGGED_IN_FLAG.load(Relaxed) {
+        true => {
+            ONBOARD_SAMPLE_PERIOD.store(cfg.sampling_period.onboard_sdt_plugged_ms, Relaxed);
+            PROBE_SAMPLE_PERIOD.store(cfg.sampling_period.probe_sdt_plugged_ms, Relaxed);
+        }
+        false => {
+            ONBOARD_SAMPLE_PERIOD.store(cfg.sampling_period.onboard_sdt_battery_ms, Relaxed);
+            PROBE_SAMPLE_PERIOD.store(cfg.sampling_period.probe_sdt_battery_ms, Relaxed);
+        }
     }
+    cfg
 }
 
 pub async fn process_payload(payload: ConfigPayload) {
@@ -105,21 +118,6 @@ pub async fn process_payload(payload: ConfigPayload) {
                     .publish_immediate(CommResponse::Ok(ResponseTypeOk::Config(
                         ConfigResponse::SetConfig,
                     )));
-                // Restart all state machines that depend on configuration
-                match PLUGGED_IN_FLAG.load(Relaxed) {
-                    true => {
-                        ONBOARD_SAMPLE_PERIOD
-                            .store(new_cfg.sampling_period.onboard_sdt_plugged_ms, Relaxed);
-                        PROBE_SAMPLE_PERIOD
-                            .store(new_cfg.sampling_period.probe_sdt_plugged_ms, Relaxed);
-                    }
-                    false => {
-                        ONBOARD_SAMPLE_PERIOD
-                            .store(new_cfg.sampling_period.onboard_sdt_battery_ms, Relaxed);
-                        PROBE_SAMPLE_PERIOD
-                            .store(new_cfg.sampling_period.probe_sdt_battery_ms, Relaxed);
-                    }
-                }
 
                 common::restart_state_machines();
             }
@@ -134,7 +132,7 @@ pub async fn process_payload(payload: ConfigPayload) {
 }
 
 /// Initializes the Config Manager. This needs to be called on boot.
-pub fn init() -> Result<(), TryLockError> {
+pub fn refresh_config() -> Result<(), TryLockError> {
     let config = load_sensus_config();
     defmt::info!("Loaded the following config: {:?}", config);
     *SENSUS_CONFIG.try_lock()? = Some(config);

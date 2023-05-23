@@ -21,7 +21,7 @@ use embassy_sync::{
 
 use crate::{
     common,
-    config_manager::SENSUS_CONFIG,
+    config_manager::{self, SENSUS_CONFIG},
     sensors::{ONBOARD_SAMPLE_PERIOD, PROBE_SAMPLE_PERIOD},
 };
 
@@ -100,32 +100,9 @@ static PLUGGED_SIG: Signal<ThreadModeRawMutex, bool> = Signal::new();
 async fn power_hook() {
     loop {
         let plugged_in = PLUGGED_SIG.wait().await;
-        let mutex = SENSUS_CONFIG.lock().await;
-        let config = mutex.clone().unwrap_or_default();
-        match plugged_in {
-            true => {
-                ONBOARD_SAMPLE_PERIOD.store(
-                    config.sampling_period.onboard_sdt_plugged_ms,
-                    core::sync::atomic::Ordering::Relaxed,
-                );
-                PROBE_SAMPLE_PERIOD.store(
-                    config.sampling_period.probe_sdt_plugged_ms,
-                    core::sync::atomic::Ordering::Relaxed,
-                );
-            }
-            false => {
-                ONBOARD_SAMPLE_PERIOD.store(
-                    config.sampling_period.onboard_sdt_battery_ms,
-                    core::sync::atomic::Ordering::Relaxed,
-                );
-                PROBE_SAMPLE_PERIOD.store(
-                    config.sampling_period.probe_sdt_battery_ms,
-                    core::sync::atomic::Ordering::Relaxed,
-                );
-            }
-        }
-
         PLUGGED_IN_FLAG.store(plugged_in, core::sync::atomic::Ordering::Relaxed);
+        config_manager::refresh_config().expect("Failed to refresh config.");
+
         POWER_WAKER.wake(); // Wake any async task waiting for a power state change.
 
         // Reset state machines
