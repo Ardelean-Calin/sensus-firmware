@@ -118,7 +118,7 @@ pub async fn process_payload(payload: ConfigPayload) {
                     .publish_immediate(CommResponse::Ok(ResponseTypeOk::Config(
                         ConfigResponse::SetConfig,
                     )));
-
+                refresh_config().expect("Error refreshing config");
                 common::restart_state_machines();
             }
             Err(err) => {

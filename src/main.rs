@@ -36,7 +36,7 @@ use nrf_softdevice::Softdevice;
 use static_cell::StaticCell;
 
 // Static not const since static variables have a fixed location in memory.
-static FIRMWARE_VERSION: &str = "v0.0.1";
+static FIRMWARE_VERSION: &str = "v0.0.2";
 
 /// Global access to a flash
 static FLASH_DRIVER: Mutex<ThreadModeRawMutex, Option<nrf_softdevice::Flash>> = Mutex::new(None);
