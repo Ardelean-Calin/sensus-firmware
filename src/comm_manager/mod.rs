@@ -31,11 +31,11 @@ async fn comm_mgr_loop() {
                             let mut updater = FirmwareUpdater::default();
                             let mut magic = AlignedBuffer([0u8; 4]);
                             let mut f = FLASH_DRIVER.lock().await;
-                            let flash_ref = f.as_mut().unwrap();
+                            let flash_ref = defmt::unwrap!(f.as_mut());
                             updater
                                 .mark_booted(flash_ref, magic.as_mut())
                                 .await
-                                .unwrap();
+                                .unwrap(); // Does not implement Format
                             marked_booted = true;
                             defmt::info!("DFU WAS SUCCESSFUL.");
                         };

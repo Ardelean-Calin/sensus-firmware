@@ -6,15 +6,19 @@ use embassy_time::{with_timeout, Duration, Ticker, Timer};
 use crate::{
     globals::PROBE_DATA_SIG,
     sensors::drivers::probe::types::ProbeHardware,
-    sensors::types::Error,
     sensors::types::ProbePeripherals,
+    sensors::types::{Error, ProbeFilter},
     sensors::{drivers::probe::sample_soil, PROBE_SAMPLE_PERIOD},
 };
 
 use types::{ProbeSM, ProbeSMState};
 
 /// Executes one tick of the state-machine and returns the errors if any.
-async fn tick(sm: &mut ProbeSM, per: &mut ProbePeripherals) -> Result<(), Error> {
+async fn tick(
+    sm: &mut ProbeSM,
+    per: &mut ProbePeripherals,
+    probe_data: &mut ProbeFilter,
+) -> Result<(), Error> {
     match sm.state {
         ProbeSMState::Start => {
             // Get probe configuration data from global config
@@ -39,9 +43,15 @@ async fn tick(sm: &mut ProbeSM, per: &mut ProbePeripherals) -> Result<(), Error>
             .map_err(|_| Error::ProbeTimeout)
             .flatten()?;
 
-            trace!("Got a new probe sample: {:?}", sample);
+            probe_data.feed(sample);
 
-            sm.state = ProbeSMState::Publish(sample);
+            trace!(
+                "Got a new probe sample\n\tRaw: {:?}\n\tFiltered: {:?}",
+                sample,
+                probe_data.get_value()
+            );
+
+            sm.state = ProbeSMState::Publish(probe_data.get_value().unwrap_or_default());
         }
         ProbeSMState::Publish(sample) => {
             PROBE_DATA_SIG.signal(sample);
@@ -60,13 +70,16 @@ async fn tick(sm: &mut ProbeSM, per: &mut ProbePeripherals) -> Result<(), Error>
 pub async fn run(per_ref: &mut ProbePeripherals) {
     // Local variables.
     let mut sm = ProbeSM::new();
+    let mut probe_data: ProbeFilter = ProbeFilter::default();
     loop {
-        let res = tick(&mut sm, per_ref).await;
+        let res = tick(&mut sm, per_ref, &mut probe_data).await;
 
         match res {
             Ok(_) => {}
             Err(e) => {
                 error!("Error sampling probe: {:?}", e);
+                probe_data.reset();
+                // Also set the Error flag.
                 // Note. Here I can match e.
                 sm.state = ProbeSMState::Sleep;
             }

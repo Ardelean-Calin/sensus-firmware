@@ -120,7 +120,7 @@ pub async fn run() -> ! {
 
                 if page.is_full() {
                     let mut f = FLASH_DRIVER.lock().await;
-                    let flash_ref = f.as_mut().unwrap();
+                    let flash_ref = defmt::unwrap!(f.as_mut());
                     // Flashes the filled page.
                     updater
                         .write_firmware(page.offset, page.data.as_slice(), flash_ref, page.length())
@@ -146,7 +146,7 @@ pub async fn run() -> ! {
                 Timer::after(Duration::from_secs(1)).await;
                 // Mark the firmware as updated and reset!
                 let mut f = FLASH_DRIVER.lock().await;
-                let flash_ref = f.as_mut().unwrap();
+                let flash_ref = defmt::unwrap!(f.as_mut());
                 let mut magic = AlignedBuffer([0u8; 4]);
                 updater
                     .mark_updated(flash_ref, magic.as_mut())

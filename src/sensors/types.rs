@@ -44,6 +44,13 @@ pub struct OnboardFilter {
     bat_filter: Filter<BatteryLevel>,
 }
 
+impl OnboardFilter {
+    pub fn reset(&mut self) {
+        self.env_filter.reset();
+        self.bat_filter.reset();
+    }
+}
+
 pub struct ProbePeripherals {
     // Used pins and hardware peripherals
     pub pin_probe_detect: AnyPin,
@@ -71,10 +78,20 @@ pub struct SensorDataRaw {
     probe: ProbeSample,
 }
 
-#[derive(Clone, Default)]
-pub struct SensorDataFiltered {
-    onboard: OnboardFilter,
-    probe: ProbeFilter,
+impl SensorDataRaw {
+    pub fn with_onboard(self, onboard_sample: OnboardSample) -> Self {
+        Self {
+            onboard: onboard_sample,
+            probe: self.probe,
+        }
+    }
+
+    pub fn with_probe(self, probe_sample: ProbeSample) -> Self {
+        Self {
+            onboard: self.onboard,
+            probe: probe_sample,
+        }
+    }
 }
 
 //
@@ -110,31 +127,6 @@ impl OnboardFilter {
         OnboardSample {
             environment_data: self.env_filter.get_value().unwrap_or_default(),
             battery_level: self.bat_filter.get_value().unwrap_or_default(),
-        }
-    }
-}
-
-impl SensorDataFiltered {
-    pub fn feed_onboard(&mut self, sample: OnboardSample) {
-        self.onboard.feed(sample);
-    }
-
-    pub fn feed_probe(&mut self, sample: ProbeSample) {
-        self.probe.feed(sample);
-    }
-
-    pub fn get_onboard(&self) -> OnboardSample {
-        self.onboard.get_value()
-    }
-
-    pub fn get_probe(&self) -> ProbeSample {
-        self.probe.get_value().unwrap_or_default()
-    }
-
-    pub fn get_raw(&self) -> SensorDataRaw {
-        SensorDataRaw {
-            onboard: self.get_onboard(),
-            probe: self.get_probe(),
         }
     }
 }

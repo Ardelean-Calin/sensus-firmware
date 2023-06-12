@@ -48,7 +48,7 @@ pub async fn store_sensus_config(config: types::SensusConfig) -> Result<(), Conf
     postcard::to_slice(&config, buf.as_mut()).map_err(|_| ConfigError::SerializationError)?;
 
     let mut f = FLASH_DRIVER.lock().await;
-    let flash_ref = f.as_mut().unwrap();
+    let flash_ref = defmt::unwrap!(f.as_mut());
 
     unsafe {
         let p_config_start: *const u32 = &__config_section_start__;
@@ -108,10 +108,10 @@ pub async fn process_payload(payload: ConfigPayload) {
             TX_BUS
                 .dyn_immediate_publisher()
                 .publish_immediate(CommResponse::Ok(ResponseTypeOk::Config(
-                    ConfigResponse::GetConfig(config),
+                    ConfigResponse::GetConfig(config.into()),
                 )));
         }
-        ConfigPayload::ConfigSet(new_cfg) => match store_sensus_config(new_cfg.clone()).await {
+        ConfigPayload::ConfigSet(new_cfg) => match store_sensus_config(new_cfg.into()).await {
             Ok(_) => {
                 TX_BUS
                     .dyn_immediate_publisher()

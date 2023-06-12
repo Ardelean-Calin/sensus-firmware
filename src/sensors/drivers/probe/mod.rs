@@ -1,6 +1,5 @@
 pub mod types;
 
-use core::iter::zip;
 use core::ops::{Add, Mul, Sub};
 
 use crate::config_manager::SENSUS_CONFIG;
@@ -16,9 +15,9 @@ use embassy_nrf::{
     ppi::Ppi,
     timerv2, twim,
 };
+use embassy_time::with_timeout;
 use embassy_time::{Duration, Timer};
 
-use heapless::Vec;
 use types::ProbeHardware;
 
 // Necessary implementations to be able to filter the data.
@@ -118,56 +117,6 @@ impl<'a> ProbeHardware<'a> {
     }
 }
 
-#[inline]
-fn interpolate_segment(x0: f32, y0: f32, x1: f32, y1: f32, x: f32) -> f32 {
-    if x <= x0 {
-        return y0;
-    };
-    if x >= x1 {
-        return y1;
-    };
-
-    let t = (x - x0) / (x1 - x0);
-
-    y0 + t * (y1 - y0)
-}
-
-fn moisture_from_freq<const N: usize>(freq: u32, lut: Vec<f32, N>) -> f32 {
-    // IMPORTANT: The LUT needs to be sorted.
-    let freq_f32 = freq as f32;
-    let lut_len = lut.len();
-
-    let frequencies = lut.clone().into_iter().step_by(2);
-    let percentages = lut.clone().into_iter().skip(1).step_by(2);
-
-    let my_values = zip(frequencies, percentages);
-
-    if freq_f32 < lut[0] {
-        return lut[1] * 100.0;
-    } else if freq_f32 > lut[lut_len - 2] {
-        return lut[lut_len - 1] * 100.0;
-    }
-
-    let mut x0 = 0f32;
-    let mut y0 = 0f32;
-    let mut x1 = 0f32;
-    let mut y1 = 0f32;
-    for (freq_lut, perc_lut) in my_values {
-        if freq_f32 > freq_lut {
-            x0 = freq_lut;
-            y0 = perc_lut;
-        } else {
-            x1 = freq_lut;
-            y1 = perc_lut;
-            break;
-        }
-    }
-
-    let moisture = interpolate_segment(x0, y0, x1, y1, freq_f32);
-
-    moisture * 100.0f32
-}
-
 /* Constants */
 static PROBE_STARTUP_TIME: Duration = Duration::from_millis(20);
 static TMP_MAX_CONV_TIME: Duration = Duration::from_millis(35);
@@ -187,9 +136,13 @@ pub async fn sample_soil(mut hw: ProbeHardware<'_>) -> Result<ProbeSample, Error
     // Start frequency measurement and also measure temperature in the meantime.
     hw.freq_sensor.start_measuring();
     Timer::after(TMP_MAX_CONV_TIME).await; // Wait 35ms
-    let temperature = tmp112_sensor
-        .read_temperature()
-        .map_err(|_| Error::ProbeI2cFailed)?;
+
+    let temperature =
+        match with_timeout(Duration::from_millis(40), tmp112_sensor.read_temperature()).await {
+            Ok(Ok(temp)) => temp,
+            Ok(Err(_)) | Err(_) => -100.0,
+        };
+
     // Stop frequency measurement and get result.
     hw.freq_sensor.stop_measuring();
     let frequency = hw.freq_sensor.get_frequency()?;
@@ -197,8 +150,9 @@ pub async fn sample_soil(mut hw: ProbeHardware<'_>) -> Result<ProbeSample, Error
     enable_ctrl.set_low();
 
     let config = SENSUS_CONFIG.lock().await;
-    let probe_lut = config.as_ref().unwrap().probe_calibration.clone().inner();
-    let moisture = moisture_from_freq(frequency, probe_lut);
+    let probe_lut = defmt::unwrap!(config.as_ref()).probe_calibration.clone();
+
+    let moisture = libsensus::moisture_from_freq(frequency, probe_lut.as_vec());
     Ok(ProbeSample {
         moisture_raw: frequency as f32,
         moisture,

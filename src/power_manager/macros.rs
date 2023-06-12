@@ -2,8 +2,8 @@
 macro_rules! run_while_plugged_in {
     ($guard:expr, $task:expr) => {{
         async move {
-            let mut _sub_plugged_in = $guard.plugged_in.subscriber().unwrap();
-            let mut _sub_plugged_out = $guard.plugged_out.subscriber().unwrap();
+            let mut _sub_plugged_in = defmt::unwrap!($guard.plugged_in.subscriber());
+            let mut _sub_plugged_out = defmt::unwrap!($guard.plugged_out.subscriber());
             loop {
                 let task = $task;
                 let guard_leave = _sub_plugged_out.next_message_pure();

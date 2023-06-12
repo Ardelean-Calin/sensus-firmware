@@ -82,22 +82,22 @@ opt300x-async = { git = "https://github.com/Ardelean-Calin/opt300x-rs-async.git"
     "defmt",
 ] }
 shared-bus = { version = "0.2.4", features = ["cortex-m"] }
-tmp1x2 = "0.2.1"
+tmp1x2 = { version = "0.2.1", path = "../tmp1x2-rs" }
 embedded-hal = "0.2.7"
 panic-persist = { version = "0.3.0", features = ["min-panic"] }
-
-# My libraries
 cobs = { version = "0.2.3", default-features = false }
 
+# My libraries
 bthome = { version = "0.1.0", git = "https://github.com/Ardelean-Calin/bthome-rs.git", tag = "0.1.0", features = [
     "defmt",
 ] }
-bitbang-hal = "0.3.2"
 crc = "3.0.1"
 postcard = { version = "1.0.4", features = ["heapless"] }
 serde = { version = "1.0.*", default-features = false }
 serde_repr = "0.1.10"
 panic-reset = "0.1.1"
+libsensus = { version = "*", path = "./libsensus" }
+
 [patch.crates-io]
 nrf52832-pac = { git = "https://github.com/Ardelean-Calin/nrf-pacs.git" }
 

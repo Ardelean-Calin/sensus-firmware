@@ -8,15 +8,19 @@ use crate::globals::ONBOARD_DATA_SIG;
 use crate::sensors::drivers::onboard::battery;
 use crate::sensors::drivers::onboard::environment;
 use crate::sensors::drivers::onboard::types::OnboardHardware;
-use crate::sensors::types::Error;
 use crate::sensors::types::OnboardPeripherals;
 use crate::sensors::types::OnboardSample;
+use crate::sensors::types::{Error, OnboardFilter};
 use crate::sensors::ONBOARD_SAMPLE_PERIOD;
 
 use types::{OnboardSM, OnboardSMState};
 
 /// Executes one tick of the state-machine and returns the errors if any.
-async fn tick(sm: &mut OnboardSM, per: &mut OnboardPeripherals) -> Result<(), Error> {
+async fn tick(
+    sm: &mut OnboardSM,
+    per: &mut OnboardPeripherals,
+    onboard_data: &mut OnboardFilter,
+) -> Result<(), Error> {
     match sm.state {
         OnboardSMState::Start => {
             // Load sample period from config.
@@ -52,9 +56,15 @@ async fn tick(sm: &mut OnboardSM, per: &mut OnboardPeripherals) -> Result<(), Er
             .map_err(|_| Error::OnboardTimeout)
             .flatten()?;
 
-            trace!("Got new INSTANTANEOUS onboard sample: {:?}", sample);
+            onboard_data.feed(sample);
 
-            sm.state = OnboardSMState::Publish(sample);
+            trace!(
+                "Got a new onboard sample\n\tRaw: {:?}\n\tFiltered: {:?}",
+                sample,
+                onboard_data.get_value()
+            );
+
+            sm.state = OnboardSMState::Publish(onboard_data.get_value());
         }
         OnboardSMState::Publish(sample) => {
             ONBOARD_DATA_SIG.signal(sample);
@@ -72,8 +82,9 @@ async fn tick(sm: &mut OnboardSM, per: &mut OnboardPeripherals) -> Result<(), Er
 ///  Runs the onboard sensor state machine.
 pub async fn run(per_ref: &mut OnboardPeripherals) {
     let mut sm = OnboardSM::new();
+    let mut onboard_data: OnboardFilter = OnboardFilter::default();
     loop {
-        let result = tick(&mut sm, per_ref).await;
+        let result = tick(&mut sm, per_ref, &mut onboard_data).await;
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -94,6 +105,7 @@ pub async fn run(per_ref: &mut OnboardPeripherals) {
                         error!("Unexpected Error: {:?}", e)
                     }
                 };
+                onboard_data.reset();
                 sm.state = OnboardSMState::Sleep;
             }
         }

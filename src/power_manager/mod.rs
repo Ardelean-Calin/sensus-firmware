@@ -21,8 +21,7 @@ use embassy_sync::{
 
 use crate::{
     common,
-    config_manager::{self, SENSUS_CONFIG},
-    sensors::{ONBOARD_SAMPLE_PERIOD, PROBE_SAMPLE_PERIOD},
+    config_manager::{self},
 };
 
 /// This structure is a `MultiWaker`. Using a multiwaker with capacity N, I can
@@ -47,7 +46,7 @@ impl<M: RawMutex, const N: usize> MultiWaker<M, N> {
                 Ok(_) => {}
                 Err(_) => {
                     wakers.wake();
-                    wakers.register(waker).unwrap();
+                    wakers.register(waker).unwrap(); // Does not implement Format
                 }
             };
         });
