@@ -82,7 +82,7 @@ opt300x-async = { git = "https://github.com/Ardelean-Calin/opt300x-rs-async.git"
     "defmt",
 ] }
 shared-bus = { version = "0.2.4", features = ["cortex-m"] }
-tmp1x2 = { version = "0.2.1", path = "../tmp1x2-rs" }
+tmp1x2 = { version = "0.2.1", git = "https://github.com/Ardelean-Calin/tmp1x2-rs.git" }
 embedded-hal = "0.2.7"
 panic-persist = { version = "0.3.0", features = ["min-panic"] }
 cobs = { version = "0.2.3", default-features = false }
