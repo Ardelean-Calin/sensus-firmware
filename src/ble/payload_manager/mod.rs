@@ -21,7 +21,7 @@ async fn payload_mgr_loop() {
                     .air_temperature(((data.environment_data.temperature * 10.0) as i16).into())
                     .illuminance(((data.environment_data.illuminance * 100.0) as u32).into())
                     .battery_level(((data.battery_level.value * 1000.0) as u16).into())
-                    .battery_low((data.battery_level.value <= 2.7f32).into())
+                    .battery_low((data.battery_level.value <= 2.6f32).into())
             }
             Either::Second(data) => {
                 current_sensordata = current_sensordata.with_probe(data);
