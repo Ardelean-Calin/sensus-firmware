@@ -1,41 +1,25 @@
 {
-  description = "Sensus development environment flake";
+  description = "virtual environments";
 
-  inputs = {
-      nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-  };
+  inputs.devshell.url = "github:numtide/devshell";
+  inputs.flake-utils.url = "github:numtide/flake-utils";
 
-  outputs = { self, nixpkgs }:
-  let
-      system = "x86_64-linux";
-      pkgs = import nixpkgs { 
-        system = "x86_64-linux"; 
-        config = { 
+  outputs = { self, flake-utils, devshell, nixpkgs }:
+    flake-utils.lib.eachDefaultSystem (system: {
+      devShell =
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+            config = { 
           allowUnfree = true;
           segger-jlink.acceptLicense = true;
+        };            
+            overlays = [ devshell.overlays.default ];
+            rustToolchain = pkgs.pkgsBuildHost.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          };
+        in
+        pkgs.devshell.mkShell {
+          imports = [ (pkgs.devshell.importTOML ./devshell.toml) ];
         };
-      };
-  in
-  {
-    devShells.${system}.default =
-      pkgs.mkShell {
-          buildInputs = [
-            pkgs.rustup
-            pkgs.cargo-binutils
-            pkgs.rustc.llvmPackages.llvm
-            pkgs.nrf-command-line-tools
-            pkgs.probe-run
-          ]; 
-          shellHook = ''
-            echo "hello mom"
-          '';
-      };
-      commands = [
-        {
-          name = "buildHex";
-          category = "build";
-          command = "cargo objcopy --release -- -O ihex app.hex";
-        }
-      ];
-    };
+    });
 }

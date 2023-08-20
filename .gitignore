@@ -1,3 +1,5 @@
 /target
+/bootloader/target
 .vscode/.cortex-debug.peripherals.state.json
-Cargo.lock
+*.hex
+/.direnv/

@@ -1,0 +1,35 @@
+# https://numtide.github.io/devshell
+# [[env]]
+# NIXPKGS_ALLOW_UNFREE = 1
+
+[[commands]]
+name = "build"
+help = "Builds Sensus firmware + bootloader in release mode."
+category = "build"
+command = "mergehex -m app.hex bootloader.hex other/softdevice/s132_nrf52_7.3.0/s132_nrf52_7.3.0_softdevice.hex -o sensus_bl_sd730.hex"
+
+[[commands]]
+name = "build-app"
+help = "Build Sensus firmware in release mode."
+category = "build"
+command = "cargo objcopy --release -- -O ihex app.hex"
+
+[[commands]]
+name = "build-bootloader"
+help = "Build Sensus bootloader in release mode."
+category = "build"
+command = "cd bootloader/ && cargo objcopy --release --features embassy-nrf/nrf52832 -- -O ihex ../bootloader.hex"
+
+[[commands]]
+name = "flash"
+help = "Flash the given hexfile to Sensus. Expects <hexfile> argument."
+command = "probe-rs download --chip nrf52832_xxAA --chip-erase --format ihex $1 && probe-rs reset --chip nrf52832_xxAA"
+
+[devshell]
+packages = [
+  "rustup",
+  "cargo-binutils",
+  "rustc.llvmPackages.llvm",
+  "nrf-command-line-tools",
+  "probe-run",
+]
