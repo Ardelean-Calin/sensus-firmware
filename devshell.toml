@@ -32,4 +32,5 @@ packages = [
   "rustc.llvmPackages.llvm",
   "nrf-command-line-tools",
   "probe-run",
+  "gcc",
 ]
