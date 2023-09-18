@@ -2,4 +2,4 @@
 channel = "nightly-2022-11-22"
 
 targets = ["thumbv7em-none-eabihf"]
-components = ["llvm-tools-preview"]
+components = ["llvm-tools-preview", "rust-analyzer"]

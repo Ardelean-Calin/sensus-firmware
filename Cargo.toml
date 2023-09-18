@@ -127,5 +127,3 @@ debug-assertions = false
 opt-level = 0
 overflow-checks = false
 
-[dev-dependencies]
-probe-rs = { version = "0.20.0", features = ["cli"] }

@@ -29,7 +29,7 @@ use cortex_m_rt::entry;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_nrf::{
-    gpio::Pin, gpiote::Channel, peripherals, ppi::ConfigurableChannel, wdt::Watchdog,
+    config::Debug, gpio::Pin, gpiote::Channel, peripherals, ppi::ConfigurableChannel, wdt::Watchdog,
 };
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use nrf_softdevice::Softdevice;
@@ -60,6 +60,7 @@ async fn main_task() {
     config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P7;
     config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P7;
     config.lfclk_source = embassy_nrf::config::LfclkSource::ExternalXtal;
+    config.debug = Debug::Allowed;
     let p = embassy_nrf::init(config);
 
     // Print out FW Version (for debugging purposes)

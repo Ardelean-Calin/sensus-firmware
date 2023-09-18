@@ -23,14 +23,16 @@ command = "cd bootloader/ && cargo objcopy --release --features embassy-nrf/nrf5
 [[commands]]
 name = "flash"
 help = "Flash the given hexfile to Sensus. Expects <hexfile> argument."
-command = "probe-rs download --chip nrf52832_xxAA --chip-erase --format ihex $1 && probe-rs reset --chip nrf52832_xxAA"
+command = "openocd -f interface/jlink.cfg -c 'transport select swd' -f target/nrf52.cfg -c init -c 'reset init' -c halt -c 'nrf5 mass_erase' -c 'program sensus_bl_sd730.hex verify' -c reset -c exit"
 
 [devshell]
 packages = [
   "rustup",
   "cargo-binutils",
-  "rustc.llvmPackages.llvm",
   "nrf-command-line-tools",
   "probe-run",
-  "gcc",
+  "clang_12",
+  "openssl",
+  "lldb",
+  "nil",
 ]

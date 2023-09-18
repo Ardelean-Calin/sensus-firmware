@@ -11,9 +11,9 @@
           pkgs = import nixpkgs {
             inherit system;
             config = { 
-          allowUnfree = true;
-          segger-jlink.acceptLicense = true;
-        };            
+              allowUnfree = true;
+              segger-jlink.acceptLicense = true;
+            };            
             overlays = [ devshell.overlays.default ];
             rustToolchain = pkgs.pkgsBuildHost.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
           };
