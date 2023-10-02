@@ -31,6 +31,7 @@ packages = [
   "cargo-binutils",
   "rustc.llvmPackages.llvm",
   "nrf-command-line-tools",
-  "probe-run",
   "gcc",
+	"probe-rs",
+	"openssl"
 ]
